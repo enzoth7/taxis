@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { Check, X } from 'lucide-react'
 import EditIcon from './EditIcon.jsx'
 import { currentDrivers, currentVehicles } from './data/catalog.js'
-import { money } from './lib/core.js'
+import { inDateRange, money } from './lib/core.js'
+import { mobileNumberForId } from './lib/mobileRoster.js'
 import { supabase } from './lib/supabase.js'
 import { downloadShiftPhoto, listShiftReports, updateShiftReport } from './lib/shiftReports.js'
 
@@ -49,7 +50,6 @@ function ReviewForm({ report, data, onClose, onSaved }) {
   const [photos, setPhotos] = useState({ sheet: null, meter: null })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const vehicles = currentVehicles(data)
   useEffect(() => {
     let active = true
     const urls = []
@@ -77,7 +77,8 @@ function ReviewForm({ report, data, onClose, onSaved }) {
     setError('')
     const numbers = ['odometer_start_km', 'odometer_end_km', 'sheet_trip_count', 'meter_trip_count', 'sheet_total_uyu', 'meter_total_uyu', 'reported_sales_uyu', 'reported_commission_uyu', 'reported_jornal_pos_uyu', 'reported_fiado_uyu', 'reported_total_to_pay_uyu', 'reported_expenses_uyu']
     const patch = { ...form }
-    if (!patch.driver_name.trim() || !patch.mobile_number.trim() || !patch.shift_date) return setError('Completá conductor, móvil y fecha.')
+    if (!patch.driver_name.trim() || !/^\d+$/.test(patch.mobile_number.trim()) || !patch.shift_date) return setError('Completá conductor, móvil y fecha.')
+    patch.vehicle_id = `movil-${patch.mobile_number.trim()}`
     for (const name of ['started_at', 'ended_at']) patch[name] = patch[name] ? new Date(patch[name]).toISOString() : null
     if (patch.started_at && patch.ended_at && patch.ended_at <= patch.started_at) return setError('El fin del turno debe ser posterior al inicio.')
     for (const name of numbers) patch[name] = patch[name] === '' ? null : Number(patch[name])
@@ -102,7 +103,6 @@ function ReviewForm({ report, data, onClose, onSaved }) {
     </div>
     <div className="shift-review-fields">
       {input('driver_name', 'Conductor')}
-      <label>Matrícula<select value={vehicles.some(vehicle => vehicle.id === form.vehicle_id) ? form.vehicle_id : ''} onChange={event => setForm(previous => ({ ...previous, vehicle_id: event.target.value || `movil-${form.mobile_number}` }))}><option value="">Sin indicar</option>{vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate}</option>)}</select></label>
       <label>Fecha de la jornada<input type="date" value={form.shift_date} onChange={event => setForm(previous => ({ ...previous, shift_date: event.target.value }))} required/></label>
       {input('mobile_number', 'Número de móvil')}
       {input('started_at', 'Inicio del turno', 'datetime-local')}
@@ -132,7 +132,7 @@ function ReviewForm({ report, data, onClose, onSaved }) {
   </form></div>
 }
 
-export default function ShiftReportsPage({ data, onChanged }) {
+export default function ShiftReportsPage({ data, range, onChanged }) {
   const [session, setSession] = useState(undefined)
   const [reports, setReports] = useState([])
   const [selected, setSelected] = useState(null)
@@ -177,13 +177,14 @@ export default function ShiftReportsPage({ data, onChanged }) {
   }
   const drivers = currentDrivers(data)
   const vehicles = currentVehicles(data)
+  const visibleReports = reports.filter(report => inDateRange(report.shift_date, range))
   if (session === undefined) return <div className="body-copy">Cargando jornadas...</div>
   if (!session) return <form className="report-login" onSubmit={signIn}><h2>Ingresar para revisar jornadas</h2><label>Correo<input type="email" value={email} onChange={event => setEmail(event.target.value)} required/></label><label>Contraseña<input type="password" value={password} onChange={event => setPassword(event.target.value)} required/></label>{error && <div className="form-error" role="alert">{error}</div>}<button className="button primary" type="submit">Ingresar</button></form>
   return <>
     {error && <div className="form-error" role="alert">{error}</div>}
     <button type="button" className="text-link report-refresh" onClick={refresh} disabled={refreshing}>{refreshing ? 'Actualizando...' : 'Actualizar jornadas'}</button>
-    {loading ? <div className="body-copy">Cargando jornadas...</div> : reports.length === 0 ? <div className="report-empty">Todavía no se enviaron jornadas.</div> : <div className="table-scroller report-table"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Venta declarada</th><th>Fotos</th><th>Planilla</th><th>Taxímetro</th><th>Diferencia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{reports.map(report => <tr key={report.id}>
-      <td>{report.shift_date}</td><td><strong>{report.driver_name || drivers.find(driver => driver.id === report.driver_id)?.name || 'Sin identificar'}</strong></td><td>{report.mobile_number || vehicles.find(vehicle => vehicle.id === report.vehicle_id)?.plate || report.vehicle_id}</td><td className="amount">{amount(report.reported_sales_uyu)}</td>
+    {loading ? <div className="body-copy">Cargando jornadas...</div> : visibleReports.length === 0 ? <div className="report-empty">No hay jornadas en este período.</div> : <div className="table-scroller report-table"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Venta declarada</th><th>Fotos</th><th>Planilla</th><th>Taxímetro</th><th>Diferencia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleReports.map(report => <tr key={report.id}>
+      <td>{report.shift_date}</td><td><strong>{report.driver_name || drivers.find(driver => driver.id === report.driver_id)?.name || 'Sin identificar'}</strong></td><td>{report.mobile_number || mobileNumberForId(report.vehicle_id, vehicles) || 'Sin indicar'}</td><td className="amount">{amount(report.reported_sales_uyu)}</td>
       <td>{[report.sheet_photo_path && 'Planilla', report.meter_photo_path && 'Taxímetro'].filter(Boolean).join(', ')}</td><td className="amount">{amount(report.sheet_total_uyu)}</td><td className="amount">{amount(report.meter_total_uyu)}</td><td className="amount">{difference(report) == null ? 'Sin comparar' : money(difference(report))}</td>
       <td><em className={`badge badge-${report.status === 'validado' ? 'ok' : 'warning'}`}>{report.status === 'validado' ? 'Validado' : 'A revisar'}</em></td><td><button type="button" className="edit-action" onClick={() => setSelected(report)} aria-label={`Revisar jornada del ${report.shift_date}`} title="Revisar jornada"><EditIcon/></button></td>
     </tr>)}</tbody></table></div>}

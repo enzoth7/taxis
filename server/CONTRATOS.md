@@ -39,8 +39,9 @@ La API futura debe aplicar permisos (administrador vs conductor), límites de co
 
 ## Esquema de datos para un backend futuro
 
-- `vehicles(id, plate, stand, status)`
+- `vehicles(id, mobile_number, stand, status)`
 - `drivers(id, full_name, auth_user_id, active)`
+- `driver_mobiles(driver_id, vehicle_id, first_seen_at, last_seen_at)`
 - `shifts(id, driver_id, vehicle_id, started_at, ended_at, km_start, km_end, cash_declared, status)`
 - `tickets(id, shift_id, driver_id, vehicle_id, ticket_number, date, time, amount, distance_km, payment_method, review_status, image_path, source, created_at)`
 - `movements(id, vehicle_id, shift_id, kind, category, description, amount, date)`

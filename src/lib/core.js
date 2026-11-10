@@ -32,6 +32,45 @@ export function filterPeriod(tickets, days) {
   return tickets.filter(t => t.date >= since)
 }
 
+export function dateRange(period, month, dates = [], now = new Date()) {
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  if (period === 'all') {
+    const first = dates.filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today).sort()[0]
+    return { start: first || today, end: today }
+  }
+  if (period === 'month' && /^\d{4}-\d{2}$/.test(month)) {
+    const start = `${month}-01`
+    const last = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)
+    const end = `${month}-${String(last.getDate()).padStart(2, '0')}`
+    return { start, end: end < today ? end : today }
+  }
+  return { start: periodStart(Number(period) || 7, now), end: today }
+}
+
+export function inDateRange(date, range) {
+  return Boolean(date && date >= range.start && date <= range.end)
+}
+
+export function dailyRevenueRange(records, range) {
+  if (range.start > range.end) return []
+  const totals = new Map()
+  for (const record of records) {
+    const amount = Number(record.amount)
+    if (inDateRange(record.date, range) && Number.isFinite(amount) && amount > 0) {
+      totals.set(record.date, (totals.get(record.date) || 0) + amount)
+    }
+  }
+  const date = new Date(`${range.start}T12:00:00`)
+  const end = new Date(`${range.end}T12:00:00`)
+  const series = []
+  while (date <= end) {
+    const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    series.push({ date: day, amount: totals.get(day) || 0 })
+    date.setDate(date.getDate() + 1)
+  }
+  return series
+}
+
 export function dailyRevenue(tickets, days, now = new Date()) {
   const totals = new Map()
   for (const ticket of tickets) {

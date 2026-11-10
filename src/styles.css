@@ -223,3 +223,10 @@ select { appearance:none; -webkit-appearance:none; background-image:none; paddin
 .archive-source { margin:0 0 8px; }
 .archive-source-link { margin-bottom:20px; }
 @media(max-width:600px) { .archive-filters { padding:0 15px 15px; } .archive-filters select,.archive-filters input { width:100%; } .archive-pagination { flex-wrap:wrap; padding:15px; } .archive-pagination em { flex-basis:100%; } }
+.title-actions { flex-wrap:wrap; }
+.period-picker { display:flex; align-items:center; gap:8px; }
+.period-picker .period-select { min-width:160px; }
+.period-picker input[type="month"] { min-width:170px; min-height:42px; padding:0 12px; border-radius:9px; font:inherit; }
+.edit-record-modal input[readonly] { background:#fff; opacity:.7; }
+.directory-page[aria-label="Tabla de flota"] .data-table td:nth-child(6) { min-width:220px; max-width:390px; white-space:normal; line-height:1.45; }
+@media(max-width:600px) { .period-picker { width:100%; } .period-picker .period-select,.period-picker input[type="month"] { min-width:0; flex:1; } }

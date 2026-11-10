@@ -6,21 +6,23 @@ const driverNames = [
 ]
 
 const legacyDriverId = id => /^chofer-(?:[1-9]|1[0-5])$/.test(id)
+const legacyVehicleId = id => /^taxi-[1-5]$/.test(id)
 const driverId = name => `real-${name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
 
-export const VEHICLES = Array.from({ length: 5 }, (_, i) => ({
-  id: `taxi-${i + 1}`,
-  plate: `IAC ${111 + i}`,
+export const VEHICLES = ['2', '4', '12', '13'].map(mobileNumber => ({
+  id: `movil-${mobileNumber}`,
+  mobileNumber,
   stand: 'Sin asignar',
   brand: '',
   model: '',
   year: '',
-  status: 'Activo',
+  status: 'Sin confirmar',
 }))
 
 export const DRIVERS = driverNames.map(name => ({
   id: driverId(name),
   name,
+  sourceName: name,
   assignedVehicleId: '',
   document: '',
   phone: '',
@@ -30,7 +32,12 @@ export const DRIVERS = driverNames.map(name => ({
 
 export function currentVehicles(state) {
   const records = state.catalog?.vehicles || {}
-  return [...VEHICLES.map(vehicle => ({ ...vehicle, ...records[vehicle.id] })), ...Object.entries(records).filter(([id]) => !VEHICLES.some(base => base.id === id)).map(([id, vehicle]) => ({ ...vehicle, id }))]
+  return [
+    ...VEHICLES.map(vehicle => ({ ...vehicle, ...records[vehicle.id], mobileNumber: vehicle.mobileNumber })),
+    ...Object.entries(records)
+      .filter(([id]) => !legacyVehicleId(id) && !VEHICLES.some(base => base.id === id))
+      .map(([id, vehicle]) => ({ ...vehicle, id, mobileNumber: vehicle.mobileNumber || '' })),
+  ]
 }
 
 export function currentDrivers(state) {

@@ -33,12 +33,13 @@ export default function RevenueChart({ series }) {
     ? [0, Math.floor((series.length - 1) / 2), series.length - 1]
     : series.length <= 7
     ? series.map((_, index) => index)
-    : [0, 7, 14, 21, series.length - 1]
+    : [...new Set([0, .25, .5, .75, 1].map(fraction => Math.round((series.length - 1) * fraction)))]
   const ticks = highest > 0 ? [1, 0.5, 0] : [0]
 
+  if (series.length === 0) return <div className="revenue-chart-empty">No hay fechas en el período seleccionado.</div>
   return <div className="revenue-chart-frame">
     <div className="revenue-chart-stage" ref={chartRef}>
-      <svg className="revenue-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Recaudación diaria del período: ${series.map(day => `${shortDate(day.date)}, ${money(day.amount)}`).join('; ')}`}>
+      <svg className="revenue-line-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Recaudación diaria del ${shortDate(series[0].date)} al ${shortDate(series.at(-1).date)}, total: ${money(series.reduce((sum, day) => sum + day.amount, 0))}`}>
         {ticks.map(fraction => {
           const position = y(axisMax * fraction)
           return <g key={fraction}>
@@ -47,7 +48,7 @@ export default function RevenueChart({ series }) {
           </g>
         })}
         <polyline key={points} className="revenue-chart-line" points={line} pathLength="1"/>
-        {series.map((day, index) => <circle key={day.date} className="revenue-chart-point" cx={x(index)} cy={y(day.amount)} r={series.length > 7 ? 3 : 5}>
+        {series.map((day, index) => (series.length <= 60 || day.amount > 0) && <circle key={day.date} className="revenue-chart-point" cx={x(index)} cy={y(day.amount)} r={series.length > 7 ? 3 : 5}>
           <title>{shortDate(day.date)}: {money(day.amount)}</title>
         </circle>)}
         {labelIndexes.map(index => <text key={series[index].date} className="revenue-axis-label revenue-date-label" x={x(index)} y={height - 14} textAnchor="middle">{shortDate(series[index].date)}</text>)}

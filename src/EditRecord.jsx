@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
-import { currentDrivers, currentVehicles } from './data/catalog.js'
+import { VEHICLES, currentDrivers, currentVehicles } from './data/catalog.js'
+import { mobileLabel } from './lib/mobileRoster.js'
 import { getPhoto } from './lib/photos.js'
 
 export default function EditRecord({ type, item, data, onClose, onSave, mode = 'edit' }) {
@@ -27,26 +28,26 @@ export default function EditRecord({ type, item, data, onClose, onSave, mode = '
       ? <select value={form[name] ?? ''} onChange={event => setForm({ ...form, [name]: event.target.value })}>{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
       : <input required={required && name !== 'ticketNumber'} type={inputType} min={inputType === 'number' ? 0 : undefined} step={inputType === 'number' ? 'any' : undefined} value={form[name] ?? ''} onChange={event => setForm({ ...form, [name]: event.target.value })}/>}</label>
   }
-  const vehicleOptions = vehicles.map(vehicle => ({ value: vehicle.id, label: vehicle.plate }))
+  const vehicleOptions = vehicles.filter(vehicle => vehicle.mobileNumber).map(vehicle => ({ value: vehicle.id, label: mobileLabel(vehicle) }))
   const driverOptions = drivers.map(driver => ({ value: driver.id, label: driver.name }))
   let fields = []
-  if (type === 'vehicles') fields = [field('plate', 'Matrícula'), field('stand', 'Parada'), field('brand', 'Marca', 'text', null, false), field('model', 'Modelo', 'text', null, false), field('year', 'Año', 'number', null, false), field('status', 'Estado', 'text', [{ value: 'Activo', label: 'Activo' }, { value: 'Mantenimiento', label: 'Mantenimiento' }, { value: 'Inactivo', label: 'Inactivo' }])]
-  if (type === 'drivers') fields = [field('name', 'Nombre'), field('document', 'Documento', 'text', null, false), field('phone', 'Teléfono', 'tel', null, false), field('license', 'Licencia', 'text', null, false), field('assignedVehicleId', 'Matrícula', 'text', [{ value: '', label: 'Sin asignar' }, ...vehicleOptions]), field('status', 'Estado', 'text', [{ value: 'Sin confirmar', label: 'Sin confirmar' }, { value: 'Activo', label: 'Activo' }, { value: 'Inactivo', label: 'Inactivo' }])]
-  if (type === 'tickets') fields = [field('ticketNumber', 'Número de ticket'), field('driverId', 'Conductor', 'text', driverOptions), field('vehicleId', 'Matrícula', 'text', vehicleOptions), field('date', 'Fecha', 'date'), field('time', 'Hora', 'time'), field('odometerStartKm', 'Odómetro inicial (km)', 'number', null, false), field('amount', 'Importe', 'number', null, false), field('distanceKm', 'Kilómetros', 'number', null, false), field('payment', 'Pago', 'text', [{value:'',label:'Sin confirmar'}, ...['efectivo','tarjeta','transferencia'].map(value => ({value,label:value}))]), field('status', 'Estado', 'text', [{value:'revision',label:'Por revisar'},{value:'validado',label:'Validado'}]), field('note', 'Observaciones', 'text', null, false)]
-  if (type === 'shifts') fields = [field('driverId', 'Conductor', 'text', driverOptions), field('vehicleId', 'Matrícula', 'text', vehicleOptions), field('kmStart', 'Odómetro inicial', 'number'), ...(item.status === 'cerrado' ? [field('kmEnd', 'Odómetro final', 'number'), field('cashDeclared', 'Efectivo declarado', 'number')] : [])]
-  if (type === 'movements') fields = [field('date', 'Fecha', 'date'), field('description', 'Detalle'), field('category', 'Categoría'), field('kind', 'Tipo', 'text', [{value:'ingreso',label:'Ingreso'},{value:'egreso',label:'Egreso'}]), field('vehicleId', 'Matrícula', 'text', vehicleOptions), field('amount', 'Importe', 'number')]
+  if (type === 'vehicles') fields = [<label key="mobileNumber">Móvil<input value={form.mobileNumber ?? ''} inputMode="numeric" pattern="[0-9]+" required readOnly={VEHICLES.some(vehicle => vehicle.id === item.id)} onChange={event => setForm({ ...form, mobileNumber: event.target.value })}/></label>, field('stand', 'Parada'), field('brand', 'Marca', 'text', null, false), field('model', 'Modelo', 'text', null, false), field('year', 'Año', 'number', null, false), field('status', 'Estado', 'text', [{ value: 'Sin confirmar', label: 'Sin confirmar' }, { value: 'Activo', label: 'Activo' }, { value: 'Mantenimiento', label: 'Mantenimiento' }, { value: 'Inactivo', label: 'Inactivo' }])]
+  if (type === 'drivers') fields = [field('name', 'Nombre'), field('document', 'Documento', 'text', null, false), field('phone', 'Teléfono', 'text', null, false), field('license', 'Licencia', 'text', null, false), field('assignedVehicleId', 'Móvil habitual', 'text', [{ value: '', label: 'Sin asignar' }, ...vehicleOptions]), field('status', 'Estado', 'text', [{ value: 'Sin confirmar', label: 'Sin confirmar' }, { value: 'Activo', label: 'Activo' }, { value: 'Inactivo', label: 'Inactivo' }])]
+  if (type === 'tickets') fields = [field('ticketNumber', 'Número de ticket'), field('driverId', 'Conductor', 'text', driverOptions), field('vehicleId', 'Móvil', 'text', vehicleOptions), field('date', 'Fecha', 'date'), field('time', 'Hora', 'time'), field('odometerStartKm', 'Odómetro inicial (km)', 'number', null, false), field('amount', 'Importe', 'number', null, false), field('distanceKm', 'Kilómetros', 'number', null, false), field('payment', 'Pago', 'text', [{value:'',label:'Sin confirmar'}, ...['efectivo','tarjeta','transferencia'].map(value => ({value,label:value}))]), field('status', 'Estado', 'text', [{value:'revision',label:'Por revisar'},{value:'validado',label:'Validado'}]), field('note', 'Observaciones', 'text', null, false)]
+  if (type === 'shifts') fields = [field('driverId', 'Conductor', 'text', driverOptions), field('vehicleId', 'Móvil', 'text', vehicleOptions), field('kmStart', 'Odómetro inicial', 'number'), ...(item.status === 'cerrado' ? [field('kmEnd', 'Odómetro final', 'number'), field('cashDeclared', 'Efectivo declarado', 'number')] : [])]
+  if (type === 'movements') fields = [field('date', 'Fecha', 'date'), field('description', 'Detalle'), field('category', 'Categoría'), field('kind', 'Tipo', 'text', [{value:'ingreso',label:'Ingreso'},{value:'egreso',label:'Egreso'}]), field('vehicleId', 'Móvil', 'text', vehicleOptions), field('amount', 'Importe', 'number')]
   function submit(event) {
     event.preventDefault()
     setError('')
     const patch = { ...form }
     if (type === 'drivers' || type === 'vehicles') {
-      for (const key of ['name', 'plate', 'stand', 'brand', 'model', 'document', 'phone', 'license']) if (typeof patch[key] === 'string') patch[key] = patch[key].trim()
+      for (const key of ['name', 'mobileNumber', 'stand', 'brand', 'model', 'document', 'phone', 'license']) if (typeof patch[key] === 'string') patch[key] = patch[key].trim()
     }
     for (const key of ['amount','distanceKm','odometerStartKm','kmStart','kmEnd','cashDeclared']) if (key in patch) patch[key] = patch[key] == null || patch[key] === '' ? null : Number(patch[key])
     if (type === 'shifts' && patch.kmEnd !== undefined && patch.kmEnd < patch.kmStart) return setError('El odómetro final debe ser igual o mayor al inicial.')
     if (type === 'shifts' && item.status === 'abierto' && data.shifts.some(shift => shift.id !== item.id && shift.status === 'abierto' && (shift.driverId === patch.driverId || shift.vehicleId === patch.vehicleId))) return setError('Ese conductor o taxi ya tiene un turno abierto.')
-    if (type === 'vehicles' && vehicles.some(vehicle => vehicle.id !== item.id && vehicle.plate.toUpperCase() === patch.plate.trim().toUpperCase())) return setError('Ya existe esa matrícula.')
-    if (type === 'tickets' && data.tickets.some(ticket => ticket.id !== item.id && ticket.ticketNumber && ticket.ticketNumber === patch.ticketNumber && ticket.vehicleId === patch.vehicleId && ticket.date === patch.date)) return setError('Ya existe un ticket con ese número, fecha y matrícula.')
+    if (type === 'vehicles' && (!/^\d+$/.test(patch.mobileNumber) || vehicles.some(vehicle => vehicle.id !== item.id && vehicle.mobileNumber === patch.mobileNumber))) return setError('Ingresá un número de móvil que no esté registrado.')
+    if (type === 'tickets' && data.tickets.some(ticket => ticket.id !== item.id && ticket.ticketNumber && ticket.ticketNumber === patch.ticketNumber && ticket.vehicleId === patch.vehicleId && ticket.date === patch.date)) return setError('Ya existe un ticket con ese número, fecha y móvil.')
     if (type === 'tickets' && patch.status === 'validado' && (patch.amount == null || patch.amount <= 0 || patch.distanceKm == null || patch.distanceKm < 0 || !patch.payment)) return setError('Completá importe, kilómetros y medio de pago antes de validar.')
     onSave(type, item.id, patch)
     onClose()
