@@ -48,11 +48,11 @@ export default function App() {
     return () => listener.subscription.unsubscribe()
   }, [])
   useEffect(() => {
-    if (authSession?.user) { refreshJornadas(); refreshFleetCatalog() }
-    else { setRemoteReports([]); setArchiveShifts([]); setRemoteCatalog(null) }
-  }, [authSession?.user?.id])
+    if (authSession === undefined) return
+    refreshJornadas()
+    refreshFleetCatalog()
+  }, [authSession?.user?.id, authSession === undefined])
   useEffect(() => {
-    if (!authSession?.user) return undefined
     const refreshOnFocus = () => { refreshJornadas(); refreshFleetCatalog() }
     window.addEventListener('focus', refreshOnFocus)
     return () => window.removeEventListener('focus', refreshOnFocus)

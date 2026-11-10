@@ -18,7 +18,6 @@ export default function PerformancePage({ shifts, reports, range, authSession, r
   const visible = mobile === 'all' ? rows : rows.filter(row => row.mobile === mobile)
   const years = [...new Set(visible.map(row => row.month.slice(0, 4)))]
   if (authSession === undefined) return <div className="report-access-status">Cargando jornadas...</div>
-  if (!authSession?.user) return <div className="performance-message">Ingresá en Inicio para ver el rendimiento. <button type="button" className="text-link" onClick={() => onPage('dashboard')}>Ir a Inicio</button></div>
   if (reportsError) return <div className="form-error" role="alert">{reportsError}</div>
   return <section className="performance-page" aria-label="Rendimiento por móvil y mes">
     <label className="performance-mobile-filter">Móvil<select value={mobile} onChange={event => setSelectedMobile(event.target.value)} aria-label="Seleccionar móvil"><option value="all">Todos los móviles</option>{mobiles.map(value => <option key={value} value={value}>Móvil {value}</option>)}</select></label>

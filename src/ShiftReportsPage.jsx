@@ -4,7 +4,6 @@ import EditIcon from './EditIcon.jsx'
 import { currentDrivers, currentVehicles } from './data/catalog.js'
 import { inDateRange, money, number } from './lib/core.js'
 import { mobileNumberForId } from './lib/mobileRoster.js'
-import { supabase } from './lib/supabase.js'
 import { downloadShiftPhoto, updateShiftReport } from './lib/shiftReports.js'
 import { orientedPhotoBlob, photoRotation } from './lib/photoOrientation.js'
 import ColumnFilter from './ColumnFilter.jsx'
@@ -189,20 +188,10 @@ export function PhotoViewer({ sources, onClose }) {
 export default function ShiftReportsPage({ data, range, reports = [], archiveShifts = [], authSession, archiveError = '', reportsError = '', onChanged, onInspectArchive }) {
   const [selected, setSelected] = useState(null)
   const [photoSources, setPhotoSources] = useState(null)
-  const [error, setError] = useState('')
-  const [email, setEmail] = useState('prueba.taxis@example.com')
-  const [password, setPassword] = useState('')
   const [filters, setFilters] = useState({})
   const [openFilter, setOpenFilter] = useState(null)
   const [page, setPage] = useState(0)
 
-  async function signIn(event) {
-    event.preventDefault()
-    setError('')
-    const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
-    if (authError) setError('No se pudo ingresar. Revisá el correo y la contraseña.')
-    else setPassword('')
-  }
   async function save(id, patch) {
     await updateShiftReport(id, patch)
     await onChanged?.()
@@ -241,16 +230,15 @@ export default function ShiftReportsPage({ data, range, reports = [], archiveShi
   const currentPage = Math.min(page, pageCount - 1)
   const shown = filteredRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
   if (authSession === undefined) return <div className="body-copy">Cargando jornadas...</div>
-  if (!authSession) return <form className="report-login" onSubmit={signIn}><h2>Ingresar para revisar jornadas</h2><label>Correo<input type="email" value={email} onChange={event => setEmail(event.target.value)} required/></label><label>Contraseña<input type="password" value={password} onChange={event => setPassword(event.target.value)} required/></label>{error && <div className="form-error" role="alert">{error}</div>}<button className="button primary" type="submit">Ingresar</button></form>
   return <>
-    {(error || archiveError || reportsError) && <div className="form-error" role="alert">{error || archiveError || reportsError}</div>}
+    {(archiveError || reportsError) && <div className="form-error" role="alert">{archiveError || reportsError}</div>}
     {entries.length === 0 ? <div className="report-empty">No hay jornadas en este período.</div> : <div className="table-scroller report-table"><table className="data-table mobile-card-table filter-card-table planillas-table"><thead><tr>{FILTER_COLUMNS.map(({ key, label }) => <th key={key}><ColumnFilter label={label} value={filters[key] || ''} options={optionsByColumn[key]} open={openFilter === key} onToggle={() => setOpenFilter(current => current === key ? null : key)} onClose={() => setOpenFilter(null)} onChange={value => { setFilters(current => ({ ...current, [key]: value })); setPage(0) }}/></th>)}<th>Acciones</th></tr></thead><tbody>{shown.map(({ row, sources, state, missing, values }) => {
       const historical = row.source_kind === 'hoja'
       return <tr key={`${row.source_kind}-${row.id}`}>
         <td data-label="Fecha">{values.date}</td><td data-label="Conductor"><strong className={missing.driver ? 'missing-value' : undefined}>{values.driver}</strong></td><td data-label="Móvil">{values.mobile}</td><td data-label="Venta declarada" className={`amount ${missing.declared ? 'missing-value' : ''}`}>{values.declared}</td>
         <td data-label="Foto"><em className={`badge badge-${sources.length ? 'ok' : 'danger'}`}>{values.photo}</em></td><td data-label="Importe" className={`amount ${missing.amount ? 'missing-value' : ''}`}>{values.amount}</td><td data-label="Km recorridos" className={values.km === 'Sin registrar' || values.km === 'A revisar' ? 'missing-value' : undefined}>{values.km}</td>
         <td data-label="Estado"><em className={`badge badge-${state.kind}`}>{state.label}</em></td>
-        <td data-label="Acciones" className="report-actions">{sources.length > 0 && <button type="button" className="edit-action" onClick={() => setPhotoSources(sources)} aria-label={`Ver fotos de la jornada del ${row.record_date}`} title="Ver fotos"><Eye size={21} strokeWidth={1.8}/></button>}<button type="button" className="edit-action" onClick={() => historical ? onInspectArchive?.(row) : setSelected(row)} aria-label={`Editar jornada del ${row.record_date}`} title="Editar jornada"><EditIcon/></button></td>
+        <td data-label="Acciones" className="report-actions">{sources.length > 0 && <button type="button" className="edit-action" onClick={() => setPhotoSources(sources)} aria-label={`Ver fotos de la jornada del ${row.record_date}`} title="Ver fotos"><Eye size={21} strokeWidth={1.8}/></button>}{authSession?.user && <button type="button" className="edit-action" onClick={() => historical ? onInspectArchive?.(row) : setSelected(row)} aria-label={`Editar jornada del ${row.record_date}`} title="Editar jornada"><EditIcon/></button>}</td>
       </tr>
     })}</tbody></table></div>}
     {entries.length > 0 && filteredRows.length === 0 && <div className="report-empty">No hay jornadas con estos filtros.</div>}

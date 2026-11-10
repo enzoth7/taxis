@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Camera, Check, Image as ImageIcon, CarFront, X } from 'lucide-react'
-import { supabase } from './lib/supabase.js'
 
 function localDateTime(date = new Date()) {
   const pad = value => String(value).padStart(2, '0')
@@ -46,18 +45,6 @@ export default function Driver({ onAddShiftReport }) {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [session, setSession] = useState(undefined)
-  const [email, setEmail] = useState('prueba.taxis@example.com')
-  const [password, setPassword] = useState('')
-  const [loginError, setLoginError] = useState('')
-  const [loginSaving, setLoginSaving] = useState(false)
-
-  useEffect(() => {
-    if (!supabase) { setLoginError('El acceso no está configurado.'); setSession(null); return undefined }
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession))
-    supabase.auth.getSession().then(({ data: result }) => setSession(result.session)).catch(() => setSession(null))
-    return () => listener.subscription.unsubscribe()
-  }, [])
 
   function setAmount(name, value) { setAmounts(previous => ({ ...previous, [name]: value })) }
 
@@ -70,19 +57,6 @@ export default function Driver({ onAddShiftReport }) {
     else setMeter(selected)
     setError('')
     setSuccess(false)
-  }
-
-  async function signIn(event) {
-    event.preventDefault()
-    setLoginError('')
-    setLoginSaving(true)
-    try {
-      const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
-      if (authError) throw authError
-      setPassword('')
-    } catch {
-      setLoginError('No se pudo ingresar. Revisá el correo y la contraseña.')
-    } finally { setLoginSaving(false) }
   }
 
   async function submit(event) {
@@ -130,14 +104,6 @@ export default function Driver({ onAddShiftReport }) {
   return <div className="driver-screen">
     <header className="driver-top"><div className="driver-top-inner"><strong className="driver-top-logo"><CarFront size={20}/> Taxi Control</strong></div></header>
     <main className="driver-wrap driver-upload-wrap">
-      {session === undefined ? <div className="body-copy">Preparando acceso...</div> : !session ?
-        <form className="driver-login-form" onSubmit={signIn}>
-          <h1>Ingresar</h1>
-          <label className="mobile-field"><em>Correo</em><input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="username" required/></label>
-          <label className="mobile-field"><em>Contraseña</em><input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required/></label>
-          {loginError && <div className="form-error" role="alert">{loginError}</div>}
-          <button type="submit" className="button primary full-width" disabled={loginSaving}>{loginSaving ? 'Ingresando...' : 'Ingresar'}</button>
-        </form> : <>
       <header className="driver-heading"><h1>Cerrar jornada</h1><div className="body-copy">Completá los importes y adjuntá la planilla y el taxímetro. Si tenés una sola foto, también podés enviarla.</div></header>
       <form className="driver-upload-form" onSubmit={submit}>
         <div className="field-grid">
@@ -166,7 +132,6 @@ export default function Driver({ onAddShiftReport }) {
         {success && <div className="form-success" role="status"><Check size={18}/><strong>Jornada enviada para revisión.</strong></div>}
         <button type="submit" className="button primary full-width save-ticket" disabled={saving}><Check size={19}/>{saving ? 'Enviando...' : 'Enviar cierre'}</button>
       </form>
-      </>}
     </main>
   </div>
 }

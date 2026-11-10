@@ -2,6 +2,7 @@ import { safeId } from './core.js'
 import { supabase } from './supabase.js'
 
 const BUCKET = 'taxi-tickets'
+const PUBLIC_OWNER_ID = '8c016996-aba5-416c-b0d0-e7f573b6b2d7'
 const EXTENSIONS = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
   'image/heic': 'heic', 'image/heif': 'heif',
@@ -20,12 +21,12 @@ export async function uploadShiftReport(values, photos) {
   checkPhoto(sheet)
   checkPhoto(meter)
   if (!supabase) throw new Error('La carga de fotos no está configurada.')
-  const { data: auth, error: authError } = await supabase.auth.getUser()
-  if (authError || !auth.user) throw new Error('Ingresá para enviar las fotos.')
+  const { data: auth } = await supabase.auth.getUser()
+  const ownerId = auth?.user?.id || PUBLIC_OWNER_ID
 
   const id = safeId()
-  const driverId = `real-${values.driverName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)}`
-  const prefix = `${auth.user.id}/${driverId}/${values.date}/${id}`
+  const driverId = `${auth?.user ? '' : 'public-'}real-${values.driverName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)}`
+  const prefix = `${ownerId}/${driverId}/${values.date}/${id}`
   const uploaded = []
   try {
     for (const [kind, file] of [['sheet', sheet], ['meter', meter]]) {
@@ -38,7 +39,7 @@ export async function uploadShiftReport(values, photos) {
       uploaded.push(path)
     }
     const { data, error } = await supabase.from('taxi_shift_reports').insert({
-      id, owner_id: auth.user.id, driver_id: driverId,
+      id, owner_id: ownerId, driver_id: driverId,
       driver_name: values.driverName, vehicle_id: values.vehicleId || `movil-${values.mobileNumber}`,
       mobile_number: values.mobileNumber, shift_date: values.date,
       started_at: values.startedAt, ended_at: values.endedAt,
