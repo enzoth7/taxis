@@ -357,9 +357,9 @@ button { -webkit-user-select:none; user-select:none; }
   .section-title { align-items:stretch; flex-direction:column; gap:16px; }
   .section-title h1 { font-size:clamp(30px,8vw,40px); line-height:1.08; overflow-wrap:anywhere; }
   .title-actions { width:100%; align-items:stretch; }
-  .period-picker { width:100%; }
-  .period-picker label { flex:1; min-width:0; }
-  .period-picker input[type="month"] { width:100%; min-width:0; min-height:48px; font-size:13px; }
+  .period-picker { width:100%; flex-direction:column; align-items:stretch; gap:12px; }
+  .period-picker label { flex:none; width:100%; min-width:0; }
+  .period-picker input[type="month"] { display:block; width:100%; max-width:100%; min-width:0; min-height:48px; font-size:16px; }
   .title-actions .section-create { width:100%; min-height:48px; }
   .dashboard-grid,.dashboard-grid.bottom-grid { gap:20px; }
   .panel-heading { grid-template-columns:minmax(0,1fr); gap:6px; }
@@ -413,8 +413,10 @@ button { -webkit-user-select:none; user-select:none; }
   .driver-screen { min-height:100dvh; }
   .driver-top { padding-top:env(safe-area-inset-top); height:calc(69px + env(safe-area-inset-top)); }
   .driver-wrap { padding-bottom:calc(32px + env(safe-area-inset-bottom)); }
-  .driver-upload-form .field-grid { grid-template-columns:1fr; gap:14px; }
+  .driver-upload-form,.driver-upload-form .field-grid { width:100%; min-width:0; }
+  .driver-upload-form .field-grid { grid-template-columns:minmax(0,1fr); gap:14px; }
   .driver-upload-form .mobile-field { font-size:13px; }
+  .driver-upload-form input[type="datetime-local"] { display:block; width:100%; max-width:100%; min-width:0; }
   .shift-photo-picker .upload-zone { min-height:185px; }
   .upload-actions .button { min-height:44px; }
 }
