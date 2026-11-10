@@ -24,7 +24,8 @@ export async function uploadShiftReport(values, photos) {
   if (authError || !auth.user) throw new Error('Ingresá para enviar las fotos.')
 
   const id = safeId()
-  const prefix = `${auth.user.id}/${values.driverId}/${values.date}/${id}`
+  const driverId = `real-${values.driverName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)}`
+  const prefix = `${auth.user.id}/${driverId}/${values.date}/${id}`
   const uploaded = []
   try {
     for (const [kind, file] of [['sheet', sheet], ['meter', meter]]) {
@@ -37,9 +38,20 @@ export async function uploadShiftReport(values, photos) {
       uploaded.push(path)
     }
     const { data, error } = await supabase.from('taxi_shift_reports').insert({
-      id, owner_id: auth.user.id, driver_id: values.driverId, vehicle_id: values.vehicleId,
-      shift_date: values.date,
-      odometer_start_km: values.odometerStartKm === '' ? null : Number(values.odometerStartKm),
+      id, owner_id: auth.user.id, driver_id: driverId,
+      driver_name: values.driverName, vehicle_id: values.vehicleId || `movil-${values.mobileNumber}`,
+      mobile_number: values.mobileNumber, shift_date: values.date,
+      started_at: values.startedAt, ended_at: values.endedAt,
+      odometer_start_km: values.odometerStartKm,
+      odometer_end_km: values.odometerEndKm,
+      reported_sales_uyu: values.sales,
+      reported_commission_uyu: values.commission,
+      reported_jornal_pos_kind: values.jornalPosKind,
+      reported_jornal_pos_uyu: values.jornalPos,
+      reported_fiado_uyu: values.fiado,
+      reported_total_to_pay_uyu: values.totalToPay,
+      reported_expenses_uyu: values.expenses,
+      reported_expenses_note: values.expenseNote,
       sheet_photo_path: uploaded.find(path => path.includes('/sheet.')) || null,
       meter_photo_path: uploaded.find(path => path.includes('/meter.')) || null,
     }).select().single()

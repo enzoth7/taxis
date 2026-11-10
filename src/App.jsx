@@ -4,7 +4,8 @@ import Driver from './Driver.jsx'
 import { STORAGE_KEY, loadState, saveState, loadServerState, syncServerState } from './lib/persistence.js'
 import { savePhoto } from './lib/photos.js'
 import { uploadTicketPhoto } from './lib/remoteTickets.js'
-import { uploadShiftReport } from './lib/shiftReports.js'
+import { uploadShiftReport, listShiftReports } from './lib/shiftReports.js'
+import { supabase } from './lib/supabase.js'
 import { isDuplicateTicket, safeId } from './lib/core.js'
 
 export default function App() {
@@ -12,6 +13,31 @@ export default function App() {
   const isDriverPage = window.location.pathname.replace(/\/$/, '') === '/conductor'
   const [notice, setNotice] = useState('')
   const [serverReady, setServerReady] = useState(false)
+  const [authSession, setAuthSession] = useState(undefined)
+  const [remoteReports, setRemoteReports] = useState([])
+  const [reportsError, setReportsError] = useState('')
+
+  async function refreshReports() {
+    try { setRemoteReports(await listShiftReports()); setReportsError('') }
+    catch (error) { setReportsError(error.message || 'No se pudieron cargar las jornadas.') }
+  }
+
+  useEffect(() => {
+    if (!supabase) { setAuthSession(null); return undefined }
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setAuthSession(session))
+    supabase.auth.getSession().then(({ data: result }) => setAuthSession(result.session)).catch(() => setAuthSession(null))
+    return () => listener.subscription.unsubscribe()
+  }, [])
+  useEffect(() => {
+    if (authSession?.user) refreshReports()
+    else setRemoteReports([])
+  }, [authSession?.user?.id])
+  useEffect(() => {
+    if (!authSession?.user) return undefined
+    const refreshOnFocus = () => refreshReports()
+    window.addEventListener('focus', refreshOnFocus)
+    return () => window.removeEventListener('focus', refreshOnFocus)
+  }, [authSession?.user?.id])
 
   useEffect(() => { saveState(data) }, [data])
   useEffect(() => {
@@ -63,6 +89,7 @@ export default function App() {
 
   async function addShiftReport(values, photos) {
     const report = await uploadShiftReport(values, photos)
+    await refreshReports()
     toast('Jornada recibida para revisión.')
     return report
   }
@@ -100,7 +127,7 @@ export default function App() {
   return <>
     {isDriverPage
       ? <Driver data={data} onAddShiftReport={addShiftReport} />
-      : <Admin data={data} onUpdateTicket={updateTicket} onAddMovement={addMovement} onEditRecord={editRecord} onAddCatalogRecord={addCatalogRecord} onUpdateSettings={updateSettings} onToast={toast} />}
+      : <Admin data={data} reports={remoteReports} reportsError={reportsError} authSession={authSession} onRefreshReports={refreshReports} onUpdateTicket={updateTicket} onAddMovement={addMovement} onEditRecord={editRecord} onAddCatalogRecord={addCatalogRecord} onUpdateSettings={updateSettings} onToast={toast} />}
     {notice && <div className="toast" role="status" aria-live="polite">{notice}</div>}
   </>
 }

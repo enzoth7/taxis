@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Camera, Check, Image as ImageIcon, CarFront, X } from 'lucide-react'
-import { currentDrivers, currentVehicles, localDate } from './data/catalog.js'
 import { supabase } from './lib/supabase.js'
+
+function localDateTime(date = new Date()) {
+  const pad = value => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+const emptyAmounts = { sales: '', commission: '', jornalPos: '', fiado: '', totalToPay: '', expenses: '0' }
 
 function PhotoPicker({ title, file, onChange }) {
   const camera = useRef(null)
@@ -25,13 +31,16 @@ function PhotoPicker({ title, file, onChange }) {
   </div>
 }
 
-export default function Driver({ data, onAddShiftReport }) {
-  const drivers = currentDrivers(data)
-  const vehicles = currentVehicles(data)
-  const [driverId, setDriverId] = useState('')
-  const [vehicleId, setVehicleId] = useState('')
-  const [date, setDate] = useState(() => localDate())
+export default function Driver({ onAddShiftReport }) {
+  const [driverName, setDriverName] = useState(() => localStorage.getItem('taxi-control-driver-name') || '')
+  const [mobileNumber, setMobileNumber] = useState(() => localStorage.getItem('taxi-control-mobile-number') || '')
+  const [startedAt, setStartedAt] = useState('')
+  const [endedAt, setEndedAt] = useState(() => localDateTime())
   const [odometerStartKm, setOdometerStartKm] = useState('')
+  const [odometerEndKm, setOdometerEndKm] = useState('')
+  const [amounts, setAmounts] = useState(emptyAmounts)
+  const [jornalPosKind, setJornalPosKind] = useState('jornal')
+  const [expenseNote, setExpenseNote] = useState('')
   const [sheet, setSheet] = useState(null)
   const [meter, setMeter] = useState(null)
   const [error, setError] = useState('')
@@ -50,11 +59,7 @@ export default function Driver({ data, onAddShiftReport }) {
     return () => listener.subscription.unsubscribe()
   }, [])
 
-  function changeDriver(id) {
-    setDriverId(id)
-    setVehicleId(drivers.find(driver => driver.id === id)?.assignedVehicleId || '')
-    setError('')
-  }
+  function setAmount(name, value) { setAmounts(previous => ({ ...previous, [name]: value })) }
 
   function choosePhoto(kind, selected) {
     if (selected && (!selected.type.startsWith('image/') || selected.size > 15 * 1024 * 1024)) {
@@ -84,15 +89,38 @@ export default function Driver({ data, onAddShiftReport }) {
     event.preventDefault()
     setError('')
     setSuccess(false)
-    if (!driverId || !vehicleId) return setError('Elegí conductor y matrícula.')
-    if (!date || date > localDate()) return setError('Elegí una fecha válida, hasta hoy.')
-    if (odometerStartKm === '' || !Number.isFinite(Number(odometerStartKm)) || Number(odometerStartKm) < 0) return setError('Ingresá los kilómetros iniciales del taxi.')
+    if (!driverName.trim()) return setError('Escribí el nombre del conductor.')
+    if (!/^\d{1,6}$/.test(mobileNumber.trim())) return setError('Ingresá el número del móvil.')
+    const start = new Date(startedAt)
+    const end = new Date(endedAt)
+    if (!startedAt || !endedAt || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) return setError('Revisá el inicio y el fin del turno.')
+    if (end.getTime() > Date.now() + 5 * 60 * 1000) return setError('El fin del turno no puede ser una fecha futura.')
+    if (odometerStartKm === '' || odometerEndKm === '' || !Number.isFinite(Number(odometerStartKm)) || !Number.isFinite(Number(odometerEndKm)) || Number(odometerStartKm) < 0 || Number(odometerEndKm) < Number(odometerStartKm)) return setError('Revisá los kilómetros iniciales y finales.')
+    if (Object.values(amounts).some(value => value === '' || !Number.isFinite(Number(value)) || Number(value) < 0)) return setError('Completá los importes con valores válidos. Si no hubo gastos, poné 0.')
     if (!sheet && !meter) return setError('Adjuntá la planilla, el detalle del taxímetro o ambos.')
     setSaving(true)
     try {
-      await onAddShiftReport({ driverId, vehicleId, date, odometerStartKm }, { sheet, meter })
+      await onAddShiftReport({
+        driverName: driverName.trim(), mobileNumber: mobileNumber.trim(),
+        date: startedAt.slice(0, 10), startedAt: start.toISOString(), endedAt: end.toISOString(),
+        odometerStartKm: Number(odometerStartKm), odometerEndKm: Number(odometerEndKm),
+        sales: Number(amounts.sales), commission: Number(amounts.commission),
+        jornalPosKind, jornalPos: Number(amounts.jornalPos), fiado: Number(amounts.fiado),
+        totalToPay: Number(amounts.totalToPay), expenses: Number(amounts.expenses),
+        expenseNote: expenseNote.trim(),
+      }, { sheet, meter })
+      try {
+        localStorage.setItem('taxi-control-driver-name', driverName.trim())
+        localStorage.setItem('taxi-control-mobile-number', mobileNumber.trim())
+      } catch { /* El envío ya quedó registrado. */ }
       setSheet(null)
       setMeter(null)
+      setStartedAt('')
+      setEndedAt(localDateTime())
+      setOdometerStartKm('')
+      setOdometerEndKm('')
+      setAmounts(emptyAmounts)
+      setExpenseNote('')
       setSuccess(true)
     } catch (cause) {
       setError(cause.message || 'No se pudieron enviar las fotos.')
@@ -110,19 +138,33 @@ export default function Driver({ data, onAddShiftReport }) {
           {loginError && <div className="form-error" role="alert">{loginError}</div>}
           <button type="submit" className="button primary full-width" disabled={loginSaving}>{loginSaving ? 'Ingresando...' : 'Ingresar'}</button>
         </form> : <>
-      <header className="driver-heading"><h1>Subir jornada</h1><div className="body-copy">Sacá las fotos de la planilla y del taxímetro. Si tenés una sola, también podés enviarla.</div></header>
+      <header className="driver-heading"><h1>Cerrar jornada</h1><div className="body-copy">Completá los importes y adjuntá la planilla y el taxímetro. Si tenés una sola foto, también podés enviarla.</div></header>
       <form className="driver-upload-form" onSubmit={submit}>
         <div className="field-grid">
-          <label className="mobile-field"><em>Conductor</em><select value={driverId} onChange={event => changeDriver(event.target.value)} required><option value="">Elegí tu nombre</option>{drivers.map(driver => <option key={driver.id} value={driver.id}>{driver.name}</option>)}</select></label>
-          <label className="mobile-field"><em>Matrícula</em><select value={vehicleId} onChange={event => setVehicleId(event.target.value)} required><option value="">Elegí el taxi</option>{vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.plate}</option>)}</select></label>
-          <label className="mobile-field"><em>Fecha de la jornada</em><input type="date" value={date} max={localDate()} onChange={event => setDate(event.target.value)} required/></label>
-          <label className="mobile-field"><em>Odómetro inicial (km)</em><input type="number" min="0" step="1" inputMode="numeric" value={odometerStartKm} onChange={event => setOdometerStartKm(event.target.value)} placeholder="Ej.: 148250" required/></label>
+          <label className="mobile-field"><em>Nombre del conductor</em><input type="text" maxLength="120" autoComplete="name" value={driverName} onChange={event => setDriverName(event.target.value)} required/></label>
+          <label className="mobile-field"><em>Número del móvil</em><input type="text" inputMode="numeric" pattern="[0-9]{1,6}" maxLength="6" value={mobileNumber} onChange={event => setMobileNumber(event.target.value)} placeholder="Ej.: 13" required/></label>
+          <label className="mobile-field"><em>Inicio del turno</em><input type="datetime-local" value={startedAt} onChange={event => setStartedAt(event.target.value)} required/></label>
+          <label className="mobile-field"><em>Fin del turno</em><input type="datetime-local" value={endedAt} onChange={event => setEndedAt(event.target.value)} required/></label>
+          <label className="mobile-field"><em>Odómetro inicial (km)</em><input type="number" min="0" step="1" inputMode="numeric" value={odometerStartKm} onChange={event => setOdometerStartKm(event.target.value)} required/></label>
+          <label className="mobile-field"><em>Odómetro final (km)</em><input type="number" min="0" step="1" inputMode="numeric" value={odometerEndKm} onChange={event => setOdometerEndKm(event.target.value)} required/></label>
         </div>
+        <h2 className="driver-form-section">Importes del cierre</h2>
+        <div className="field-grid">
+          <label className="mobile-field"><em>Venta total (UYU)</em><input type="number" min="0" step="0.01" inputMode="decimal" value={amounts.sales} onChange={event => setAmount('sales', event.target.value)} required/></label>
+          <label className="mobile-field"><em>Comisión (UYU)</em><input type="number" min="0" step="0.01" inputMode="decimal" value={amounts.commission} onChange={event => setAmount('commission', event.target.value)} required/></label>
+          <label className="mobile-field"><em>Concepto</em><select value={jornalPosKind} onChange={event => setJornalPosKind(event.target.value)}><option value="jornal">Jornal</option><option value="pos">POS</option></select></label>
+          <label className="mobile-field"><em>Jornal o POS (UYU)</em><input type="number" min="0" step="0.01" inputMode="decimal" value={amounts.jornalPos} onChange={event => setAmount('jornalPos', event.target.value)} required/></label>
+          <label className="mobile-field"><em>Fiado (UYU)</em><input type="number" min="0" step="0.01" inputMode="decimal" value={amounts.fiado} onChange={event => setAmount('fiado', event.target.value)} required/></label>
+          <label className="mobile-field"><em>Total a pagar (UYU)</em><input type="number" min="0" step="0.01" inputMode="decimal" value={amounts.totalToPay} onChange={event => setAmount('totalToPay', event.target.value)} required/></label>
+          <label className="mobile-field"><em>Gastos del turno (UYU)</em><input type="number" min="0" step="0.01" inputMode="decimal" value={amounts.expenses} onChange={event => setAmount('expenses', event.target.value)} required/></label>
+          <label className="mobile-field"><em>Detalle de gastos, si hubo</em><input type="text" maxLength="250" value={expenseNote} onChange={event => setExpenseNote(event.target.value)}/></label>
+        </div>
+        <h2 className="driver-form-section">Comprobantes</h2>
         <PhotoPicker title="Planilla de jornada" file={sheet} onChange={file => choosePhoto('sheet', file)}/>
         <PhotoPicker title="Detalle del taxímetro" file={meter} onChange={file => choosePhoto('meter', file)}/>
         {error && <div className="form-error" role="alert">{error}</div>}
-        {success && <div className="form-success" role="status"><Check size={18}/><strong>Fotos enviadas para revisión.</strong></div>}
-        <button type="submit" className="button primary full-width save-ticket" disabled={saving}><Check size={19}/>{saving ? 'Enviando...' : 'Enviar jornada'}</button>
+        {success && <div className="form-success" role="status"><Check size={18}/><strong>Jornada enviada para revisión.</strong></div>}
+        <button type="submit" className="button primary full-width save-ticket" disabled={saving}><Check size={19}/>{saving ? 'Enviando...' : 'Enviar cierre'}</button>
       </form>
       </>}
     </main>

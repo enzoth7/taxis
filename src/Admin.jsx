@@ -12,6 +12,7 @@ import EditRecord from './EditRecord.jsx'
 import EditIcon from './EditIcon.jsx'
 import RevenueChart from './RevenueChart.jsx'
 import ShiftReportsPage from './ShiftReportsPage.jsx'
+import { supabase } from './lib/supabase.js'
 
 const CatalogContext = createContext({ vehicles: VEHICLES, drivers: DRIVERS })
 const EditContext = createContext(() => {})
@@ -112,34 +113,70 @@ function TicketDetail({ ticket, onClose, onUpdateTicket }) {
   </div></div>
 }
 
-function Dashboard({ tickets, data, period, onPage, onInspect }) {
+function Dashboard({ tickets, data, period, onPage, onInspect, reports, reportsError, authSession }) {
   const { vehicles, drivers: catalogDrivers } = useContext(CatalogContext)
   const edit = useContext(EditContext)
+  const [email, setEmail] = useState('prueba.taxis@example.com')
+  const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loggingIn, setLoggingIn] = useState(false)
+  async function signIn(event) {
+    event.preventDefault()
+    setLoggingIn(true)
+    setLoginError('')
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      if (error) throw error
+      setPassword('')
+    } catch { setLoginError('No se pudo ingresar. Revisá el correo y la contraseña.') }
+    finally { setLoggingIn(false) }
+  }
   const m = metrics(tickets, data.settings.commissionPct)
+  const visibleReports = reports.filter(report => report.shift_date >= periodStart(Number(period)))
+  const reportSales = visibleReports.reduce((sum, report) => sum + Number(report.reported_sales_uyu || 0), 0)
+  const reportKm = visibleReports.reduce((sum, report) => sum + Math.max(0, Number(report.odometer_end_km || 0) - Number(report.odometer_start_km || 0)), 0)
+  const reportPending = visibleReports.filter(report => report.status === 'revision')
   const fleet = groupByKey(tickets, 'vehicleId')
+  const reportFleet = visibleReports.reduce((groups, report) => {
+    (groups[report.vehicle_id] ||= []).push(report)
+    return groups
+  }, {})
+  const fleetRows = authSession?.user
+    ? [...vehicles, ...Object.keys(reportFleet).filter(id => !vehicles.some(vehicle => vehicle.id === id)).map(id => ({ id, plate: id.startsWith('movil-') ? `Móvil ${id.slice(6)}` : id }))]
+    : vehicles
   const drivers = groupByKey(tickets, 'driverId')
   const pending = tickets.filter(t=>t.status === 'revision')
   const movements = data.movements.filter(item => item.date >= periodStart(Number(period)))
-  const revenue = dailyRevenue(data.tickets, Number(period))
+  const revenue = authSession?.user
+    ? dailyRevenue(reports.map(report => ({ date: report.shift_date, amount: report.reported_sales_uyu })), Number(period))
+    : dailyRevenue(data.tickets, Number(period))
   return <div className="dashboard-stack">
     <div className="dashboard-kpis" aria-label="Indicadores del período seleccionado">
-      <div className="dashboard-kpi dashboard-kpi-primary"><div>Recaudación bruta</div><strong>{money(m.gross)}</strong><small>Importes registrados</small></div>
-      <div className="dashboard-kpi"><div>Viajes registrados</div><strong>{number(m.trips)}</strong><small>Tickets del período</small></div>
-      <div className="dashboard-kpi"><div>Kilómetros de viajes</div><strong>{number(m.km, 1)} km</strong><small>Distancia registrada</small></div>
-      <div className="dashboard-kpi"><div>Para revisar</div><strong>{number(m.pending)}</strong><small>Tickets pendientes</small></div>
+      <div className="dashboard-kpi dashboard-kpi-primary"><div>{authSession?.user ? 'Venta declarada' : 'Recaudación bruta'}</div><strong>{money(authSession?.user ? reportSales : m.gross)}</strong><small>Importes registrados</small></div>
+      <div className="dashboard-kpi"><div>{authSession?.user ? 'Jornadas recibidas' : 'Viajes registrados'}</div><strong>{number(authSession?.user ? visibleReports.length : m.trips)}</strong><small>{authSession?.user ? 'Cierres del período' : 'Tickets del período'}</small></div>
+      <div className="dashboard-kpi"><div>{authSession?.user ? 'Kilómetros recorridos' : 'Kilómetros de viajes'}</div><strong>{number(authSession?.user ? reportKm : m.km, 1)} km</strong><small>Distancia registrada</small></div>
+      <div className="dashboard-kpi"><div>Para revisar</div><strong>{number(authSession?.user ? reportPending.length : m.pending)}</strong><small>{authSession?.user ? 'Jornadas pendientes' : 'Tickets pendientes'}</small></div>
     </div>
+    <Panel title="Jornadas recibidas" subtitle="Cierres enviados desde la vista del conductor" action={authSession?.user && <button className="text-link" onClick={() => onPage('reports')}>Ver planillas</button>}>
+      {authSession === undefined ? <div className="report-access-status">Cargando jornadas...</div>
+        : !authSession ? <form className="report-access-form" onSubmit={signIn}><div>Ingresá para ver las jornadas guardadas en Supabase.</div><label>Correo<input type="email" value={email} onChange={event => setEmail(event.target.value)} required/></label><label>Contraseña<input type="password" value={password} onChange={event => setPassword(event.target.value)} required/></label><button type="submit" className="button primary" disabled={loggingIn}>{loggingIn ? 'Ingresando...' : 'Ingresar'}</button>{loginError && <div className="form-error" role="alert">{loginError}</div>}</form>
+        : reportsError ? <div className="form-error" role="alert">{reportsError}</div>
+        : visibleReports.length === 0 ? <Empty title="Sin jornadas en este período" text="Probá con otro período o enviá un cierre desde el celular."/>
+        : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Venta declarada</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleReports.slice(0, 6).map(report => <tr key={report.id}><td>{report.shift_date}</td><td><strong>{report.driver_name || catalogDrivers.find(driver => driver.id === report.driver_id)?.name || report.driver_id}</strong></td><td>{report.mobile_number || vehicles.find(vehicle => vehicle.id === report.vehicle_id)?.plate || 'Sin indicar'}</td><td className="amount">{report.reported_sales_uyu == null ? 'Sin registrar' : money(Number(report.reported_sales_uyu))}</td><td><Badge kind={report.status === 'validado' ? 'ok' : 'warning'}>{report.status === 'validado' ? 'Validado' : 'A revisar'}</Badge></td><td><EditAction label={`jornada del ${report.shift_date}`} onClick={() => onPage('reports')}/></td></tr>)}</tbody></table></div>}
+    </Panel>
     <div className="dashboard-grid">
-      <Panel title="Recaudación diaria" subtitle="Ingresos brutos registrados por día">
+      <Panel title="Recaudación diaria" subtitle={authSession?.user ? 'Venta declarada por día' : 'Ingresos brutos registrados por día'}>
         <RevenueChart series={revenue}/>
       </Panel>
       <Panel title="Estado de la flota" subtitle="Rendimiento por vehículo" action={<button className="text-link" onClick={() => onPage('fleet')}>Ver flota</button>}>
-        <div className="table-scroller"><table className="data-table"><thead><tr><th>Matrícula</th><th>Viajes</th><th>Recaudación</th><th>Acciones</th></tr></thead><tbody>{vehicles.map(vehicle => <tr key={vehicle.id}><td><strong>{vehicle.plate}</strong></td><td>{fleet[vehicle.id]?.trips || 0}</td><td className="amount">{money(fleet[vehicle.id]?.amount || 0)}</td><td><EditAction label={`matrícula ${vehicle.plate}`} onClick={() => edit('vehicles', vehicle)}/></td></tr>)}</tbody></table></div>
+        <div className="table-scroller"><table className="data-table"><thead><tr><th>Matrícula o móvil</th><th>{authSession?.user ? 'Jornadas' : 'Viajes'}</th><th>Recaudación</th><th>Acciones</th></tr></thead><tbody>{fleetRows.map(vehicle => <tr key={vehicle.id}><td><strong>{vehicle.plate}</strong></td><td>{authSession?.user ? (reportFleet[vehicle.id]?.length || 0) : (fleet[vehicle.id]?.trips || 0)}</td><td className="amount">{money(authSession?.user ? (reportFleet[vehicle.id] || []).reduce((sum, report) => sum + Number(report.reported_sales_uyu || 0), 0) : (fleet[vehicle.id]?.amount || 0))}</td><td><EditAction label={`matrícula ${vehicle.plate}`} onClick={() => vehicle.id.startsWith('movil-') ? onPage('reports') : edit('vehicles', vehicle)}/></td></tr>)}</tbody></table></div>
       </Panel>
     </div>
     <div className="dashboard-grid bottom-grid">
       <Panel title="Últimos tickets" subtitle="Actividad reciente de los conductores" action={<button className="text-link" onClick={() => onPage('tickets')}>Ver todos</button>}><TicketTable tickets={tickets} onInspect={onInspect} compact/></Panel>
-      <Panel title="Para revisar" subtitle="Tickets que requieren validación" action={<Badge kind={pending.length ? 'warning' : 'ok'}>{pending.length} pendientes</Badge>}>
-        {pending.length === 0 ? <Empty title="Sin pendientes" text="No hay tickets por revisar en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Ticket</th><th>Conductor</th><th>Matrícula</th><th>Importe</th><th>Acciones</th></tr></thead><tbody>{pending.slice(0,5).map(ticket => <tr key={ticket.id}><td>{ticket.ticketNumber || 'Sin número'}</td><td><DriverLabel id={ticket.driverId}/></td><td><VehicleLabel id={ticket.vehicleId}/></td><td className="amount">{ticket.amount == null ? 'Por completar' : money(ticket.amount)}</td><td><EditAction label={`ticket ${ticket.ticketNumber || ticket.id}`} onClick={() => edit('tickets', ticket)}/></td></tr>)}</tbody></table></div>}
+      <Panel title="Para revisar" subtitle={authSession?.user ? 'Jornadas que requieren validación' : 'Tickets que requieren validación'} action={<Badge kind={(authSession?.user ? reportPending : pending).length ? 'warning' : 'ok'}>{(authSession?.user ? reportPending : pending).length} pendientes</Badge>}>
+        {authSession?.user ? reportPending.length === 0 ? <Empty title="Sin pendientes" text="No hay jornadas por revisar en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Acciones</th></tr></thead><tbody>{reportPending.slice(0, 5).map(report => <tr key={report.id}><td>{report.shift_date}</td><td>{report.driver_name || catalogDrivers.find(driver => driver.id === report.driver_id)?.name || report.driver_id}</td><td>{report.mobile_number || vehicles.find(vehicle => vehicle.id === report.vehicle_id)?.plate || 'Sin indicar'}</td><td><EditAction label={`jornada del ${report.shift_date}`} onClick={() => onPage('reports')}/></td></tr>)}</tbody></table></div>
+          : pending.length === 0 ? <Empty title="Sin pendientes" text="No hay tickets por revisar en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Ticket</th><th>Conductor</th><th>Matrícula</th><th>Importe</th><th>Acciones</th></tr></thead><tbody>{pending.slice(0,5).map(ticket => <tr key={ticket.id}><td>{ticket.ticketNumber || 'Sin número'}</td><td><DriverLabel id={ticket.driverId}/></td><td><VehicleLabel id={ticket.vehicleId}/></td><td className="amount">{ticket.amount == null ? 'Por completar' : money(ticket.amount)}</td><td><EditAction label={`ticket ${ticket.ticketNumber || ticket.id}`} onClick={() => edit('tickets', ticket)}/></td></tr>)}</tbody></table></div>}
       </Panel>
     </div>
     <div className="dashboard-grid bottom-grid">
@@ -231,7 +268,7 @@ function SettingsPage({ pct, onUpdateSettings }) {
   </form>
 }
 
-export default function Admin({ data, onUpdateTicket, onAddMovement, onEditRecord, onAddCatalogRecord, onUpdateSettings }) {
+export default function Admin({ data, reports = [], reportsError = '', authSession, onRefreshReports, onUpdateTicket, onAddMovement, onEditRecord, onAddCatalogRecord, onUpdateSettings }) {
   const [page,setPage] = useState('dashboard')
   const [period,setPeriod] = useState('7')
   const [selectedTicket,setSelectedTicket] = useState(null)
@@ -272,9 +309,9 @@ export default function Admin({ data, onUpdateTicket, onAddMovement, onEditRecor
       <header className="mobile-header"><button className="mobile-menu" onClick={()=>setNavOpen(v=>!v)} aria-label="Abrir menú"><Menu size={23}/></button><strong>Taxi Control</strong></header>
       <main className="admin-main">
         <SectionTitle title={title} description={description} action={(showPeriod || pageAction) && <div className="title-actions">{showPeriod && <select className="period-select" aria-label="Período" value={period} onChange={e=>setPeriod(e.target.value)}><option value="1">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option></select>}{pageAction && (pageAction.href ? <a className="button primary section-create" href={pageAction.href} target="_blank" rel="noopener noreferrer" aria-label={`${pageAction.label}, abre una nueva pestaña`}><NewTabIcon/> {pageAction.label}</a> : <button className="button primary section-create" onClick={pageAction.onClick}><Plus size={17}/> {pageAction.label}</button>)}</div>} />
-        {page === 'dashboard' && <Dashboard tickets={tickets} data={data} period={period} onPage={goPage} onInspect={setSelectedTicket}/>}
+        {page === 'dashboard' && <Dashboard tickets={tickets} data={data} period={period} reports={reports} reportsError={reportsError} authSession={authSession} onPage={goPage} onInspect={setSelectedTicket}/>}
         {page === 'tickets' && <TicketsPage tickets={tickets} onInspect={setSelectedTicket}/>}
-        {page === 'reports' && <ShiftReportsPage data={data}/>}
+        {page === 'reports' && <ShiftReportsPage data={data} onChanged={onRefreshReports}/>}
         {page === 'shifts' && <ShiftsPage data={data}/>}
         {page === 'drivers' && <DriversPage tickets={tickets} commissionPct={data.settings.commissionPct}/>}
         {page === 'fleet' && <FleetPage tickets={tickets}/>}
