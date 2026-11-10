@@ -215,3 +215,11 @@ select { appearance:none; -webkit-appearance:none; background-image:none; paddin
 @media(max-width:1320px) { .dashboard-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:600px) { .dashboard-kpis { gap:12px; } .dashboard-kpi { min-height:128px; padding:15px; } .dashboard-kpi > div { font-size:12px; } .dashboard-kpi strong { font-size:24px; } .dashboard-kpi small { font-size:10px; } .revenue-chart-frame { padding:10px 8px 8px; } }
 @media(prefers-reduced-motion:reduce) { .dashboard-kpi,.revenue-chart-line { animation:none; stroke-dashoffset:0; } }
+.archive-filters { display:flex; flex-wrap:wrap; gap:12px; padding:0 22px 20px; }
+.archive-filters select,.archive-filters input { min-height:42px; min-width:160px; }
+.archive-filters input { flex:1; }
+.archive-pagination { display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:17px 22px; }
+.archive-pagination em { font-size:13px; font-style:normal; margin-right:auto; }
+.archive-source { margin:0 0 8px; }
+.archive-source-link { margin-bottom:20px; }
+@media(max-width:600px) { .archive-filters { padding:0 15px 15px; } .archive-filters select,.archive-filters input { width:100%; } .archive-pagination { flex-wrap:wrap; padding:15px; } .archive-pagination em { flex-basis:100%; } }

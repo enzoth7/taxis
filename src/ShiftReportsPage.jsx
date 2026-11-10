@@ -21,7 +21,7 @@ function localDateTime(value) {
 
 function ReviewForm({ report, data, onClose, onSaved }) {
   const [form, setForm] = useState({
-    driver_name: fieldValue(report.driver_name || currentDrivers(data).find(driver => driver.id === report.driver_id)?.name || report.driver_id),
+    driver_name: fieldValue(report.driver_name || currentDrivers(data).find(driver => driver.id === report.driver_id)?.name || ''),
     vehicle_id: report.vehicle_id,
     shift_date: report.shift_date,
     mobile_number: fieldValue(report.mobile_number),
@@ -183,7 +183,7 @@ export default function ShiftReportsPage({ data, onChanged }) {
     {error && <div className="form-error" role="alert">{error}</div>}
     <button type="button" className="text-link report-refresh" onClick={refresh} disabled={refreshing}>{refreshing ? 'Actualizando...' : 'Actualizar jornadas'}</button>
     {loading ? <div className="body-copy">Cargando jornadas...</div> : reports.length === 0 ? <div className="report-empty">Todavía no se enviaron jornadas.</div> : <div className="table-scroller report-table"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Venta declarada</th><th>Fotos</th><th>Planilla</th><th>Taxímetro</th><th>Diferencia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{reports.map(report => <tr key={report.id}>
-      <td>{report.shift_date}</td><td><strong>{report.driver_name || drivers.find(driver => driver.id === report.driver_id)?.name || report.driver_id}</strong></td><td>{report.mobile_number || vehicles.find(vehicle => vehicle.id === report.vehicle_id)?.plate || report.vehicle_id}</td><td className="amount">{amount(report.reported_sales_uyu)}</td>
+      <td>{report.shift_date}</td><td><strong>{report.driver_name || drivers.find(driver => driver.id === report.driver_id)?.name || 'Sin identificar'}</strong></td><td>{report.mobile_number || vehicles.find(vehicle => vehicle.id === report.vehicle_id)?.plate || report.vehicle_id}</td><td className="amount">{amount(report.reported_sales_uyu)}</td>
       <td>{[report.sheet_photo_path && 'Planilla', report.meter_photo_path && 'Taxímetro'].filter(Boolean).join(', ')}</td><td className="amount">{amount(report.sheet_total_uyu)}</td><td className="amount">{amount(report.meter_total_uyu)}</td><td className="amount">{difference(report) == null ? 'Sin comparar' : money(difference(report))}</td>
       <td><em className={`badge badge-${report.status === 'validado' ? 'ok' : 'warning'}`}>{report.status === 'validado' ? 'Validado' : 'A revisar'}</em></td><td><button type="button" className="edit-action" onClick={() => setSelected(report)} aria-label={`Revisar jornada del ${report.shift_date}`} title="Revisar jornada"><EditIcon/></button></td>
     </tr>)}</tbody></table></div>}

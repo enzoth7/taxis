@@ -1,6 +1,6 @@
 # Taxi Control
 
-Aplicación de Vite y React para enviar fotos de jornadas y administrar viajes y movimientos de una flota de cinco taxis. El catálogo incluye quince conductores con nombres ficticios. La interfaz usa blanco, azul profundo y tablas con columnas.
+Aplicación de Vite y React para enviar fotos de jornadas y administrar viajes y movimientos de una flota de cinco taxis. El directorio muestra 22 nombres identificables de las hojas históricas de Google Drive. La interfaz usa blanco, azul profundo y tablas con columnas.
 
 ## Iniciar
 
@@ -35,7 +35,7 @@ npm run build
 - Vista del conductor: nombre, número de móvil, inicio y fin del turno, odómetros inicial y final, venta total, comisión, jornal o POS, fiado, total a pagar y gastos. Envía la planilla de jornada, el detalle impreso del taxímetro o ambos. No muestra indicadores ni secciones administrativas.
 - En Inicio se ven las jornadas enviadas y sus indicadores al ingresar con el usuario de Supabase. La pestaña Planillas permite revisar los importes declarados, las dos fotos y los importes transcritos de cada fuente. Cuando hay dos totales se muestra su diferencia.
 - Las tablas incluyen acciones para editar tickets, turnos, movimientos, conductores y matrículas. Los totales calculados llevan a sus registros o a la configuración del porcentaje.
-- Los quince conductores se asignan inicialmente a cinco taxis. Sus nombres masculinos son ficticios. Las matrículas de muestra van de `IAC 111` a `IAC 115`; las paradas quedan sin asignar hasta contar con datos reales. No hay viajes precargados.
+- Los 22 nombres del directorio vienen de las hojas de 2024 y 2025. Su estado actual, matrícula, parada y datos personales no están confirmados. Las cinco matrículas de muestra van de `IAC 111` a `IAC 115`; no se asignan a conductores por suposición.
 
 ## API local
 
@@ -63,6 +63,14 @@ La vista del conductor pide ingresar con un usuario de Supabase Auth. Guarda una
 La URL y la clave publicable están en `.env`, excluido del control de versiones. En Vercel, las variables de producción `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` ya están configuradas. No hay clave de servicio en la aplicación. El nombre ingresado atribuye el archivo, pero no verifica quién usa el dispositivo. El usuario de prueba comparte acceso a sus propias fotos entre el celular y la computadora cuando se inicia sesión en ambos. Cada dominio requiere iniciar sesión por separado.
 
 La aplicación envía las fotografías a Supabase Storage e inserta una fila en `/rest/v1/taxi_shift_reports`. El panel consulta la misma tabla para Inicio y Planillas. Actualmente el usuario de prueba es compartido: cualquiera con esas credenciales puede abrir el panel y revisar las fotos. Para uso real hacen falta cuentas individuales y permisos separados para conductores y administradores.
+
+## Archivo histórico de Drive
+
+Se importaron las ocho hojas de móviles 2, 4, 12 y 13 de 2024 y 2025, junto con el control general de tirillas, desde la [carpeta compartida](https://drive.google.com/drive/folders/1VggPwMTQWcR_q3Xa_UoMRLe8K1kCEBMy). Hay 876 jornadas, 49 totales mensuales, 731 días de control y 26 filas del resumen general en `public.taxi_archive_rows`. Los registros conservan archivo, pestaña, número de fila, valores originales y valores mostrados en la hoja. La importación usa una clave única por archivo, pestaña y fila para evitar duplicados al repetirla.
+
+La pantalla Turnos permite consultar las jornadas por año, móvil y conductor, y corregir los campos interpretados sin modificar la fila original. Conductores muestra jornadas, kilómetros, entradas y comisiones registradas en estas hojas. De las 876 jornadas, 155 tienen el conductor como `?` y siguen sin asignar. Solo se unificaron tres variantes de escritura evidentes: `Milyon` con `Milton`, `Federcio Mas` con `Federico Mas` y `J Rodriguez` con `J. Rodriguez`. Los nombres parciales se conservaron como figuran en el origen.
+
+Estas hojas no contienen las fotos históricas ni datos de 2023. Las fotos futuras requieren la carpeta correspondiente. El archivo histórico es independiente de las planillas con fotos enviadas por los conductores.
 
 ## Alcance actual
 

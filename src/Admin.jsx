@@ -39,6 +39,19 @@ const STATUS = {
 
 function Badge({ kind = 'neutral', children }) { return <em className={`badge badge-${kind}`}>{children}</em> }
 function TicketBadge({ status }) { const [label, kind] = STATUS[status] || ['Manual', 'neutral']; return <Badge kind={kind}>{label}</Badge> }
+function historicalStats(rows) {
+  return rows.reduce((totals, row) => {
+    if (!row.driver_name) return totals
+    const item = totals[row.driver_name] ||= { shifts: 0, sales: 0, commission: 0, km: 0 }
+    item.shifts += 1
+    item.sales += Number(row.sales_uyu || 0)
+    item.commission += Number(row.commission_uyu || 0)
+    const start = Number(row.odometer_start_km)
+    const end = Number(row.odometer_end_km)
+    if (row.odometer_start_km != null && row.odometer_end_km != null && end >= start) item.km += end - start
+    return totals
+  }, {})
+}
 function EntityBadge({ status }) {
   const label = status || 'Activo'
   const kind = label === 'Activo' ? 'ok' : label === 'Inactivo' ? 'danger' : label === 'Mantenimiento' ? 'warning' : 'neutral'
@@ -113,7 +126,7 @@ function TicketDetail({ ticket, onClose, onUpdateTicket }) {
   </div></div>
 }
 
-function Dashboard({ tickets, data, period, onPage, onInspect, reports, reportsError, authSession }) {
+function Dashboard({ tickets, data, period, onPage, onInspect, reports, reportsError, authSession, archiveShifts }) {
   const { vehicles, drivers: catalogDrivers } = useContext(CatalogContext)
   const edit = useContext(EditContext)
   const [email, setEmail] = useState('prueba.taxis@example.com')
@@ -136,6 +149,7 @@ function Dashboard({ tickets, data, period, onPage, onInspect, reports, reportsE
   const reportSales = visibleReports.reduce((sum, report) => sum + Number(report.reported_sales_uyu || 0), 0)
   const reportKm = visibleReports.reduce((sum, report) => sum + Math.max(0, Number(report.odometer_end_km || 0) - Number(report.odometer_start_km || 0)), 0)
   const reportPending = visibleReports.filter(report => report.status === 'revision')
+  const archivedByDriver = historicalStats(archiveShifts)
   const fleet = groupByKey(tickets, 'vehicleId')
   const reportFleet = visibleReports.reduce((groups, report) => {
     (groups[report.vehicle_id] ||= []).push(report)
@@ -162,7 +176,7 @@ function Dashboard({ tickets, data, period, onPage, onInspect, reports, reportsE
         : !authSession ? <form className="report-access-form" onSubmit={signIn}><div>Ingresá para ver las jornadas guardadas en Supabase.</div><label>Correo<input type="email" value={email} onChange={event => setEmail(event.target.value)} required/></label><label>Contraseña<input type="password" value={password} onChange={event => setPassword(event.target.value)} required/></label><button type="submit" className="button primary" disabled={loggingIn}>{loggingIn ? 'Ingresando...' : 'Ingresar'}</button>{loginError && <div className="form-error" role="alert">{loginError}</div>}</form>
         : reportsError ? <div className="form-error" role="alert">{reportsError}</div>
         : visibleReports.length === 0 ? <Empty title="Sin jornadas en este período" text="Probá con otro período o enviá un cierre desde el celular."/>
-        : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Venta declarada</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleReports.slice(0, 6).map(report => <tr key={report.id}><td>{report.shift_date}</td><td><strong>{report.driver_name || catalogDrivers.find(driver => driver.id === report.driver_id)?.name || report.driver_id}</strong></td><td>{report.mobile_number || vehicles.find(vehicle => vehicle.id === report.vehicle_id)?.plate || 'Sin indicar'}</td><td className="amount">{report.reported_sales_uyu == null ? 'Sin registrar' : money(Number(report.reported_sales_uyu))}</td><td><Badge kind={report.status === 'validado' ? 'ok' : 'warning'}>{report.status === 'validado' ? 'Validado' : 'A revisar'}</Badge></td><td><EditAction label={`jornada del ${report.shift_date}`} onClick={() => onPage('reports')}/></td></tr>)}</tbody></table></div>}
+        : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Venta declarada</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleReports.slice(0, 6).map(report => <tr key={report.id}><td>{report.shift_date}</td><td><strong>{report.driver_name || catalogDrivers.find(driver => driver.id === report.driver_id)?.name || 'Sin identificar'}</strong></td><td>{report.mobile_number || vehicles.find(vehicle => vehicle.id === report.vehicle_id)?.plate || 'Sin indicar'}</td><td className="amount">{report.reported_sales_uyu == null ? 'Sin registrar' : money(Number(report.reported_sales_uyu))}</td><td><Badge kind={report.status === 'validado' ? 'ok' : 'warning'}>{report.status === 'validado' ? 'Validado' : 'A revisar'}</Badge></td><td><EditAction label={`jornada del ${report.shift_date}`} onClick={() => onPage('reports')}/></td></tr>)}</tbody></table></div>}
     </Panel>
     <div className="dashboard-grid">
       <Panel title="Recaudación diaria" subtitle={authSession?.user ? 'Venta declarada por día' : 'Ingresos brutos registrados por día'}>
@@ -175,7 +189,7 @@ function Dashboard({ tickets, data, period, onPage, onInspect, reports, reportsE
     <div className="dashboard-grid bottom-grid">
       <Panel title="Últimos tickets" subtitle="Actividad reciente de los conductores" action={<button className="text-link" onClick={() => onPage('tickets')}>Ver todos</button>}><TicketTable tickets={tickets} onInspect={onInspect} compact/></Panel>
       <Panel title="Para revisar" subtitle={authSession?.user ? 'Jornadas que requieren validación' : 'Tickets que requieren validación'} action={<Badge kind={(authSession?.user ? reportPending : pending).length ? 'warning' : 'ok'}>{(authSession?.user ? reportPending : pending).length} pendientes</Badge>}>
-        {authSession?.user ? reportPending.length === 0 ? <Empty title="Sin pendientes" text="No hay jornadas por revisar en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Acciones</th></tr></thead><tbody>{reportPending.slice(0, 5).map(report => <tr key={report.id}><td>{report.shift_date}</td><td>{report.driver_name || catalogDrivers.find(driver => driver.id === report.driver_id)?.name || report.driver_id}</td><td>{report.mobile_number || vehicles.find(vehicle => vehicle.id === report.vehicle_id)?.plate || 'Sin indicar'}</td><td><EditAction label={`jornada del ${report.shift_date}`} onClick={() => onPage('reports')}/></td></tr>)}</tbody></table></div>
+        {authSession?.user ? reportPending.length === 0 ? <Empty title="Sin pendientes" text="No hay jornadas por revisar en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Acciones</th></tr></thead><tbody>{reportPending.slice(0, 5).map(report => <tr key={report.id}><td>{report.shift_date}</td><td>{report.driver_name || catalogDrivers.find(driver => driver.id === report.driver_id)?.name || 'Sin identificar'}</td><td>{report.mobile_number || vehicles.find(vehicle => vehicle.id === report.vehicle_id)?.plate || 'Sin indicar'}</td><td><EditAction label={`jornada del ${report.shift_date}`} onClick={() => onPage('reports')}/></td></tr>)}</tbody></table></div>
           : pending.length === 0 ? <Empty title="Sin pendientes" text="No hay tickets por revisar en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Ticket</th><th>Conductor</th><th>Matrícula</th><th>Importe</th><th>Acciones</th></tr></thead><tbody>{pending.slice(0,5).map(ticket => <tr key={ticket.id}><td>{ticket.ticketNumber || 'Sin número'}</td><td><DriverLabel id={ticket.driverId}/></td><td><VehicleLabel id={ticket.vehicleId}/></td><td className="amount">{ticket.amount == null ? 'Por completar' : money(ticket.amount)}</td><td><EditAction label={`ticket ${ticket.ticketNumber || ticket.id}`} onClick={() => edit('tickets', ticket)}/></td></tr>)}</tbody></table></div>}
       </Panel>
     </div>
@@ -183,8 +197,8 @@ function Dashboard({ tickets, data, period, onPage, onInspect, reports, reportsE
       <Panel title="Movimientos" subtitle="Ingresos y gastos del período" action={<button className="text-link" onClick={() => onPage('movements')}>Ver movimientos</button>}>
         {movements.length === 0 ? <Empty title="Sin movimientos" text="No hay movimientos en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Detalle</th><th>Tipo</th><th>Importe</th><th>Acciones</th></tr></thead><tbody>{movements.slice(0,5).map(item => <tr key={item.id}><td>{item.date}</td><td>{item.description}</td><td>{item.kind === 'egreso' ? 'Egreso' : 'Ingreso'}</td><td className="amount">{money(item.amount)}</td><td><EditAction label={`movimiento ${item.description}`} onClick={() => edit('movements', item)}/></td></tr>)}</tbody></table></div>}
       </Panel>
-      <Panel title="Conductores" subtitle={`${catalogDrivers.length} conductores`} action={<button className="text-link" onClick={() => onPage('drivers')}>Ver conductores</button>}>
-        <div className="table-scroller"><table className="data-table"><thead><tr><th>Conductor</th><th>Matrícula</th><th>Viajes</th><th>Acciones</th></tr></thead><tbody>{catalogDrivers.slice(0,5).map(driver => <tr key={driver.id}><td><strong>{driver.name}</strong></td><td><VehicleLabel id={driver.assignedVehicleId}/></td><td>{drivers[driver.id]?.trips || 0}</td><td><EditAction label={`conductor ${driver.name}`} onClick={() => edit('drivers', driver)}/></td></tr>)}</tbody></table></div>
+      <Panel title="Conductores" subtitle={`${catalogDrivers.length} conductores identificados`} action={<button className="text-link" onClick={() => onPage('drivers')}>Ver conductores</button>}>
+        <div className="table-scroller"><table className="data-table"><thead><tr><th>Conductor</th><th>Matrícula</th><th>Jornadas históricas</th><th>Acciones</th></tr></thead><tbody>{catalogDrivers.slice(0,5).map(driver => <tr key={driver.id}><td><strong>{driver.name}</strong></td><td><VehicleLabel id={driver.assignedVehicleId}/></td><td>{archivedByDriver[driver.name]?.shifts || 0}</td><td><EditAction label={`conductor ${driver.name}`} onClick={() => edit('drivers', driver)}/></td></tr>)}</tbody></table></div>
       </Panel>
     </div>
   </div>
@@ -201,22 +215,80 @@ function TicketsPage({ tickets, onInspect }) {
   </Panel>
 }
 
-function ShiftsPage({ data }) {
-  const edit = useContext(EditContext)
-  return <Panel title="Cierres de turno" subtitle="Comparación del efectivo registrado y el declarado por el conductor">
-    {data.shifts.length === 0 ? <Empty icon={Clock3} title="No hay turnos registrados" text="Los turnos anteriores aparecerán acá." /> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Conductor / móvil</th><th>Inicio</th><th>Estado</th><th>Efectivo esperado</th><th>Efectivo declarado</th><th>Diferencia</th><th>Acciones</th></tr></thead><tbody>
-      {data.shifts.map(s => { const r = reconciliation(data.tickets,s);return <tr key={s.id}><td><div className="cell-main"><strong><DriverLabel id={s.driverId}/></strong><small><VehicleLabel id={s.vehicleId}/></small></div></td><td>{new Date(s.startedAt).toLocaleString('es-UY',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td><Badge kind={s.status==='abierto'?'warning':'ok'}>{s.status==='abierto'?'En curso':'Cerrado'}</Badge></td><td className="amount">{money(r.expectedCash)}</td><td className="amount">{s.status==='abierto'?'—':money(r.declaredCash)}</td><td className="amount">{s.status==='abierto'?'—':money(r.difference)}</td><td><EditAction label="turno" onClick={() => edit('shifts', s)}/></td></tr> })}
-    </tbody></table></div>}
-  </Panel>
+function ArchiveEdit({ row, onClose, onSave }) {
+  const [form, setForm] = useState({
+    record_date: row.record_date || '', mobile_number: row.mobile_number || '',
+    driver_name: row.driver_name || '', shift_label: row.shift_label || '',
+    sales_uyu: row.sales_uyu ?? '', commission_uyu: row.commission_uyu ?? '',
+    fiado_uyu: row.fiado_uyu ?? '', odometer_start_km: row.odometer_start_km ?? '',
+    odometer_end_km: row.odometer_end_km ?? '',
+  })
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  function field(name, title, type = 'text') {
+    return <label key={name}>{title}<input type={type} step={type === 'number' ? 'any' : undefined} value={form[name]} onChange={event => setForm(previous => ({ ...previous, [name]: event.target.value }))}/></label>
+  }
+  async function submit(event) {
+    event.preventDefault()
+    setError('')
+    const patch = { ...form, driver_name: form.driver_name.trim() || null, mobile_number: form.mobile_number.trim() || null, shift_label: form.shift_label.trim() || null }
+    if (!patch.record_date) return setError('Elegí una fecha.')
+    for (const key of ['sales_uyu', 'commission_uyu', 'fiado_uyu', 'odometer_start_km', 'odometer_end_km']) {
+      patch[key] = form[key] === '' ? null : Number(form[key])
+      if (patch[key] != null && !Number.isFinite(patch[key])) return setError('Revisá los importes y kilómetros.')
+    }
+    setSaving(true)
+    try { await onSave(row.id, patch); onClose() }
+    catch (cause) { setError(cause.message || 'No se pudo guardar.') }
+    finally { setSaving(false) }
+  }
+  return <div className="modal-overlay" role="presentation" onMouseDown={onClose}><form className="modal shift-review-modal" role="dialog" aria-modal="true" aria-label="Editar jornada histórica" onMouseDown={event => event.stopPropagation()} onSubmit={submit}>
+    <header className="modal-head"><h2>Editar jornada histórica</h2><button type="button" className="icon-only" onClick={onClose} aria-label="Cerrar"><X size={20}/></button></header>
+    <div className="body-copy archive-source">{row.source_file_title}, {row.source_tab}, fila {row.source_row}. Conductor original: {row.driver_name_raw || 'sin identificar'}.</div>
+    <a className="text-link archive-source-link" href={`https://docs.google.com/spreadsheets/d/${row.source_file_id}/edit`} target="_blank" rel="noopener noreferrer"><NewTabIcon/> Abrir hoja de origen</a>
+    <div className="shift-review-fields">
+      {field('record_date', 'Fecha', 'date')}{field('mobile_number', 'Número del móvil')}
+      {field('driver_name', 'Conductor')}{field('shift_label', 'Horario anotado')}
+      {field('sales_uyu', 'Entradas (UYU)', 'number')}{field('commission_uyu', 'Comisión (UYU)', 'number')}
+      {field('fiado_uyu', 'Fiado (UYU)', 'number')}{field('odometer_start_km', 'Km inicial', 'number')}
+      {field('odometer_end_km', 'Km final', 'number')}
+    </div>
+    {error && <div className="form-error" role="alert">{error}</div>}
+    <div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancelar</button><button type="submit" className="button primary" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button></div>
+  </form></div>
 }
 
-function DriversPage({ tickets, commissionPct }) {
+function ShiftsPage({ data, archiveShifts, archiveError, authSession, onEditArchive }) {
+  const edit = useContext(EditContext)
+  const [year, setYear] = useState('todos')
+  const [mobile, setMobile] = useState('todos')
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(0)
+  const [selected, setSelected] = useState(null)
+  const visible = archiveShifts.filter(row => (year === 'todos' || row.record_date?.startsWith(year)) && (mobile === 'todos' || row.mobile_number === mobile) && (!query || (row.driver_name || row.driver_name_raw || '').toLowerCase().includes(query.toLowerCase())))
+  const shown = visible.slice(page * 40, page * 40 + 40)
+  const maxPage = Math.max(0, Math.ceil(visible.length / 40) - 1)
+  return <>
+    <Panel title="Jornadas históricas" subtitle={`${archiveShifts.length} jornadas importadas de las hojas de 2024 y 2025`}>
+      {archiveError && <div className="form-error" role="alert">{archiveError}</div>}
+      {!authSession ? <div className="report-empty">Ingresá desde Inicio para ver el historial.</div> : <>
+        <div className="archive-filters"><select aria-label="Año" value={year} onChange={event => { setYear(event.target.value); setPage(0) }}><option value="todos">Todos los años</option><option value="2025">2025</option><option value="2024">2024</option></select><select aria-label="Móvil" value={mobile} onChange={event => { setMobile(event.target.value); setPage(0) }}><option value="todos">Todos los móviles</option>{['2', '4', '12', '13'].map(value => <option key={value} value={value}>Móvil {value}</option>)}</select><input aria-label="Buscar conductor" placeholder="Buscar conductor" value={query} onChange={event => { setQuery(event.target.value); setPage(0) }}/></div>
+        {visible.length === 0 ? <Empty icon={Clock3} title="Sin jornadas" text="No hay resultados con estos filtros."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Móvil</th><th>Conductor</th><th>Turno</th><th>Entradas</th><th>Comisión</th><th>Km inicial</th><th>Km final</th><th>Acciones</th></tr></thead><tbody>{shown.map(row => <tr key={row.id}><td>{row.record_date}</td><td>{row.mobile_number}</td><td><strong>{row.driver_name || 'Sin identificar'}</strong></td><td>{row.shift_label || '—'}</td><td className="amount">{row.sales_uyu == null ? '—' : money(Number(row.sales_uyu))}</td><td className="amount">{row.commission_uyu == null ? '—' : money(Number(row.commission_uyu))}</td><td>{row.odometer_start_km == null ? '—' : number(Number(row.odometer_start_km))}</td><td>{row.odometer_end_km == null ? '—' : number(Number(row.odometer_end_km))}</td><td><EditAction label={`jornada histórica del ${row.record_date}`} onClick={() => setSelected(row)}/></td></tr>)}</tbody></table></div>}
+        <div className="archive-pagination"><em>{visible.length} jornadas, página {page + 1} de {maxPage + 1}</em><button type="button" className="button secondary compact" disabled={page === 0} onClick={() => setPage(value => value - 1)}>Anterior</button><button type="button" className="button secondary compact" disabled={page >= maxPage} onClick={() => setPage(value => value + 1)}>Siguiente</button></div>
+      </>}
+    </Panel>
+    {data.shifts.length > 0 && <Panel title="Turnos registrados en este navegador"><div className="table-scroller"><table className="data-table"><thead><tr><th>Conductor / móvil</th><th>Inicio</th><th>Estado</th><th>Efectivo esperado</th><th>Efectivo declarado</th><th>Diferencia</th><th>Acciones</th></tr></thead><tbody>{data.shifts.map(s => { const r = reconciliation(data.tickets,s);return <tr key={s.id}><td><div className="cell-main"><strong><DriverLabel id={s.driverId}/></strong><small><VehicleLabel id={s.vehicleId}/></small></div></td><td>{new Date(s.startedAt).toLocaleString('es-UY',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td><Badge kind={s.status==='abierto'?'warning':'ok'}>{s.status==='abierto'?'En curso':'Cerrado'}</Badge></td><td className="amount">{money(r.expectedCash)}</td><td className="amount">{s.status==='abierto'?'—':money(r.declaredCash)}</td><td className="amount">{s.status==='abierto'?'—':money(r.difference)}</td><td><EditAction label="turno" onClick={() => edit('shifts', s)}/></td></tr> })}</tbody></table></div></Panel>}
+    {selected && <ArchiveEdit key={selected.id} row={selected} onClose={() => setSelected(null)} onSave={onEditArchive}/>}
+  </>
+}
+
+function DriversPage({ historical }) {
   const { vehicles, drivers: catalogDrivers } = useContext(CatalogContext)
   const edit = useContext(EditContext)
-  const byDriver = groupByKey(tickets,'driverId')
+  const byDriver = historicalStats(historical)
   return <section className="directory-page" aria-label="Tabla de conductores">
     <div className="directory-count">{catalogDrivers.length} conductores</div>
-    <div className="table-scroller"><table className="data-table"><thead><tr><th>Conductor</th><th>Documento</th><th>Teléfono</th><th>Licencia</th><th>Matrícula</th><th>Parada</th><th>Estado</th><th>Viajes</th><th>Kilómetros</th><th>Recaudación</th><th>Ingreso estimado</th><th>Acciones</th></tr></thead><tbody>{catalogDrivers.map(driver => {const result = byDriver[driver.id] || {trips:0,amount:0,km:0};const vehicle = vehicles.find(item => item.id === driver.assignedVehicleId);return <tr key={driver.id}><td><strong>{driver.name}</strong></td><td>{driver.document || '—'}</td><td>{driver.phone || '—'}</td><td>{driver.license || '—'}</td><td>{vehicle?.plate || '—'}</td><td>{vehicle?.stand || 'Sin asignar'}</td><td><EntityBadge status={driver.status}/></td><td>{number(result.trips)}</td><td>{number(result.km,1)} km</td><td className="amount">{money(result.amount)}</td><td className="amount">{money(result.amount * commissionPct / 100)}</td><td><EditAction label={`conductor ${driver.name}`} onClick={() => edit('drivers', driver)}/></td></tr>})}</tbody></table></div>
+    <div className="table-scroller"><table className="data-table"><thead><tr><th>Conductor</th><th>Documento</th><th>Teléfono</th><th>Licencia</th><th>Matrícula</th><th>Parada</th><th>Estado</th><th>Jornadas 2024-25</th><th>Kilómetros</th><th>Entradas</th><th>Comisión</th><th>Acciones</th></tr></thead><tbody>{catalogDrivers.map(driver => {const result = byDriver[driver.name] || {shifts:0,sales:0,commission:0,km:0};const vehicle = vehicles.find(item => item.id === driver.assignedVehicleId);return <tr key={driver.id}><td><strong>{driver.name}</strong></td><td>{driver.document || '—'}</td><td>{driver.phone || '—'}</td><td>{driver.license || '—'}</td><td>{vehicle?.plate || '—'}</td><td>{vehicle?.stand || 'Sin asignar'}</td><td><EntityBadge status={driver.status}/></td><td>{number(result.shifts)}</td><td>{number(result.km,1)} km</td><td className="amount">{money(result.sales)}</td><td className="amount">{money(result.commission)}</td><td><EditAction label={`conductor ${driver.name}`} onClick={() => edit('drivers', driver)}/></td></tr>})}</tbody></table></div>
   </section>
 }
 
@@ -268,7 +340,7 @@ function SettingsPage({ pct, onUpdateSettings }) {
   </form>
 }
 
-export default function Admin({ data, reports = [], reportsError = '', authSession, onRefreshReports, onUpdateTicket, onAddMovement, onEditRecord, onAddCatalogRecord, onUpdateSettings }) {
+export default function Admin({ data, reports = [], reportsError = '', archiveShifts = [], archiveError = '', authSession, onRefreshReports, onEditArchiveShift, onUpdateTicket, onAddMovement, onEditRecord, onAddCatalogRecord, onUpdateSettings }) {
   const [page,setPage] = useState('dashboard')
   const [period,setPeriod] = useState('7')
   const [selectedTicket,setSelectedTicket] = useState(null)
@@ -281,8 +353,8 @@ export default function Admin({ data, reports = [], reportsError = '', authSessi
     dashboard: ['Centro de operaciones', 'Todo lo que pasa en la flota, en un solo lugar.'],
     tickets: ['Viajes y tickets', 'Registro de viajes individuales.'],
     reports: ['Planillas de jornada', 'Revisión de la planilla y el detalle del taxímetro.'],
-    shifts: ['Control de turnos', 'Historial de turnos registrados.'],
-    drivers: ['Conductores', 'Actividad y rendimiento del equipo.'],
+    shifts: ['Control de turnos', 'Jornadas históricas importadas de Google Drive.'],
+    drivers: ['Conductores', 'Nombres y cifras registrados en las hojas históricas.'],
     fleet: ['Flota de taxis', 'Seguimiento de vehículos y recaudación.'],
     movements: ['Movimientos', 'Gastos y movimientos de dinero.'],
     payroll: ['Liquidaciones', 'Estimaciones por conductor según el período.'],
@@ -309,11 +381,11 @@ export default function Admin({ data, reports = [], reportsError = '', authSessi
       <header className="mobile-header"><button className="mobile-menu" onClick={()=>setNavOpen(v=>!v)} aria-label="Abrir menú"><Menu size={23}/></button><strong>Taxi Control</strong></header>
       <main className="admin-main">
         <SectionTitle title={title} description={description} action={(showPeriod || pageAction) && <div className="title-actions">{showPeriod && <select className="period-select" aria-label="Período" value={period} onChange={e=>setPeriod(e.target.value)}><option value="1">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option></select>}{pageAction && (pageAction.href ? <a className="button primary section-create" href={pageAction.href} target="_blank" rel="noopener noreferrer" aria-label={`${pageAction.label}, abre una nueva pestaña`}><NewTabIcon/> {pageAction.label}</a> : <button className="button primary section-create" onClick={pageAction.onClick}><Plus size={17}/> {pageAction.label}</button>)}</div>} />
-        {page === 'dashboard' && <Dashboard tickets={tickets} data={data} period={period} reports={reports} reportsError={reportsError} authSession={authSession} onPage={goPage} onInspect={setSelectedTicket}/>}
+        {page === 'dashboard' && <Dashboard tickets={tickets} data={data} period={period} reports={reports} reportsError={reportsError} authSession={authSession} archiveShifts={archiveShifts} onPage={goPage} onInspect={setSelectedTicket}/>}
         {page === 'tickets' && <TicketsPage tickets={tickets} onInspect={setSelectedTicket}/>}
         {page === 'reports' && <ShiftReportsPage data={data} onChanged={onRefreshReports}/>}
-        {page === 'shifts' && <ShiftsPage data={data}/>}
-        {page === 'drivers' && <DriversPage tickets={tickets} commissionPct={data.settings.commissionPct}/>}
+        {page === 'shifts' && <ShiftsPage data={data} archiveShifts={archiveShifts} archiveError={archiveError} authSession={authSession} onEditArchive={onEditArchiveShift}/>}
+        {page === 'drivers' && <DriversPage historical={archiveShifts}/>}
         {page === 'fleet' && <FleetPage tickets={tickets}/>}
         {page === 'movements' && <MovementsPage data={data} onAdd={onAddMovement}/>}
         {page === 'payroll' && <PayrollPage tickets={tickets} pct={data.settings.commissionPct} onSettings={()=>goPage('settings')} onTickets={()=>goPage('tickets')}/>}

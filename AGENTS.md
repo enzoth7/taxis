@@ -8,4 +8,5 @@
 - Prohibido el exceso de contenedores: no agregar marcos o tarjetas decorativas alrededor de títulos, íconos o botones cuando la sección o la tabla ya organiza el contenido. Los títulos van separados visualmente de las tablas y el botón de editar muestra solo el lápiz, sin doble marco.
 - La vista del conductor pide ingresar y completar el cierre de su jornada: nombre, número de móvil, inicio, fin, odómetros, importes, gastos y fotos de planilla y taxímetro. Puede enviar una sola foto si falta la otra. No mostrar indicadores ni accesos al panel administrativo en esa pantalla.
 - Cada jornada conserva ambas fuentes por separado. Las cifras extraídas o transcritas se revisan antes de validarse y las diferencias permanecen visibles.
+- El directorio de conductores usa los nombres identificables de las hojas históricas. No atribuir matrículas ni estados actuales sin una fuente que los confirme; los registros con conductor desconocido permanecen sin asignar.
 - No usar el carácter Unicode U+00B7 en textos de interfaz, documentación o respuestas para Enzo.

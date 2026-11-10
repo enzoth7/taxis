@@ -1,20 +1,12 @@
 const driverNames = [
-  'Martín Silva', 'Joaquín Ferreira', 'Luis Méndez', 'Federico Acosta',
-  'Camilo Pereyra', 'Nicolás Duarte', 'Valentín Costa', 'Santiago Ríos',
-  'Fernando Medina', 'Bruno Cabrera', 'Agustín Franco', 'Emiliano Vega',
-  'Simón Torres', 'Mateo Sosa', 'Pablo Navarro',
+  'Anibal Peralta', 'Antonella', 'Bettiana', 'Cardozo', 'Carlos Coito',
+  'Curbelo', 'Diego', 'Eduardo', 'Federico', 'Federico Mas', 'Fernando',
+  'J. Rodriguez', 'Juan De Agustini', 'Marcelo', 'Milton', 'Pablo',
+  'Sant Angelo', 'Santana', 'Sarago', 'W Volpe', 'Yanel', 'Zanoniani',
 ]
 
-const previousDriverNames = {
-  'Martina Silva': 'Martín Silva',
-  'Lucía Méndez': 'Luis Méndez',
-  'Camila Pereyra': 'Camilo Pereyra',
-  'Valentina Costa': 'Valentín Costa',
-  'Florencia Medina': 'Fernando Medina',
-  'Agustina Franco': 'Agustín Franco',
-  'Sofía Torres': 'Simón Torres',
-  'Paula Navarro': 'Pablo Navarro',
-}
+const legacyDriverId = id => /^chofer-(?:[1-9]|1[0-5])$/.test(id)
+const driverId = name => `real-${name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`
 
 export const VEHICLES = Array.from({ length: 5 }, (_, i) => ({
   id: `taxi-${i + 1}`,
@@ -26,14 +18,14 @@ export const VEHICLES = Array.from({ length: 5 }, (_, i) => ({
   status: 'Activo',
 }))
 
-export const DRIVERS = driverNames.map((name, i) => ({
-  id: `chofer-${i + 1}`,
+export const DRIVERS = driverNames.map(name => ({
+  id: driverId(name),
   name,
-  assignedVehicleId: VEHICLES[i % 5].id,
+  assignedVehicleId: '',
   document: '',
   phone: '',
   license: '',
-  status: 'Activo',
+  status: 'Sin confirmar',
 }))
 
 export function currentVehicles(state) {
@@ -45,8 +37,8 @@ export function currentDrivers(state) {
   const records = state.catalog?.drivers || {}
   return [...DRIVERS.map(driver => {
     const saved = records[driver.id] || {}
-    return { ...driver, ...saved, name: previousDriverNames[saved.name] || saved.name || driver.name }
-  }), ...Object.entries(records).filter(([id]) => !DRIVERS.some(base => base.id === id)).map(([id, driver]) => ({ ...driver, id }))]
+    return { ...driver, ...saved, name: saved.name || driver.name }
+  }), ...Object.entries(records).filter(([id]) => !legacyDriverId(id) && !DRIVERS.some(base => base.id === id)).map(([id, driver]) => ({ ...driver, id }))]
 }
 
 export function localDate(date = new Date()) {

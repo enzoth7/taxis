@@ -6,6 +6,7 @@ import { savePhoto } from './lib/photos.js'
 import { uploadTicketPhoto } from './lib/remoteTickets.js'
 import { uploadShiftReport, listShiftReports } from './lib/shiftReports.js'
 import { supabase } from './lib/supabase.js'
+import { listArchiveShifts, updateArchiveShift } from './lib/archive.js'
 import { isDuplicateTicket, safeId } from './lib/core.js'
 
 export default function App() {
@@ -16,10 +17,16 @@ export default function App() {
   const [authSession, setAuthSession] = useState(undefined)
   const [remoteReports, setRemoteReports] = useState([])
   const [reportsError, setReportsError] = useState('')
+  const [archiveShifts, setArchiveShifts] = useState([])
+  const [archiveError, setArchiveError] = useState('')
 
   async function refreshReports() {
     try { setRemoteReports(await listShiftReports()); setReportsError('') }
     catch (error) { setReportsError(error.message || 'No se pudieron cargar las jornadas.') }
+  }
+  async function refreshArchive() {
+    try { setArchiveShifts(await listArchiveShifts()); setArchiveError('') }
+    catch (error) { setArchiveError(error.message || 'No se pudo cargar el historial.') }
   }
 
   useEffect(() => {
@@ -29,12 +36,12 @@ export default function App() {
     return () => listener.subscription.unsubscribe()
   }, [])
   useEffect(() => {
-    if (authSession?.user) refreshReports()
-    else setRemoteReports([])
+    if (authSession?.user) { refreshReports(); refreshArchive() }
+    else { setRemoteReports([]); setArchiveShifts([]) }
   }, [authSession?.user?.id])
   useEffect(() => {
     if (!authSession?.user) return undefined
-    const refreshOnFocus = () => refreshReports()
+    const refreshOnFocus = () => { refreshReports(); refreshArchive() }
     window.addEventListener('focus', refreshOnFocus)
     return () => window.removeEventListener('focus', refreshOnFocus)
   }, [authSession?.user?.id])
@@ -99,6 +106,12 @@ export default function App() {
     toast(status === 'validado' ? 'Ticket validado.' : 'Ticket marcado para revisión.')
   }
 
+  async function editArchiveShift(id, patch) {
+    const updated = await updateArchiveShift(id, patch)
+    setArchiveShifts(previous => previous.map(shift => shift.id === id ? updated : shift))
+    toast('Jornada histórica actualizada.')
+  }
+
   function addMovement(input) {
     setData(previous => ({ ...previous, movements: [{ ...input, id: safeId(), amount: Number(input.amount) }, ...previous.movements] }))
     toast('Movimiento registrado.')
@@ -127,7 +140,7 @@ export default function App() {
   return <>
     {isDriverPage
       ? <Driver data={data} onAddShiftReport={addShiftReport} />
-      : <Admin data={data} reports={remoteReports} reportsError={reportsError} authSession={authSession} onRefreshReports={refreshReports} onUpdateTicket={updateTicket} onAddMovement={addMovement} onEditRecord={editRecord} onAddCatalogRecord={addCatalogRecord} onUpdateSettings={updateSettings} onToast={toast} />}
+      : <Admin data={data} reports={remoteReports} reportsError={reportsError} archiveShifts={archiveShifts} archiveError={archiveError} authSession={authSession} onRefreshReports={refreshReports} onEditArchiveShift={editArchiveShift} onUpdateTicket={updateTicket} onAddMovement={addMovement} onEditRecord={editRecord} onAddCatalogRecord={addCatalogRecord} onUpdateSettings={updateSettings} onToast={toast} />}
     {notice && <div className="toast" role="status" aria-live="polite">{notice}</div>}
   </>
 }
