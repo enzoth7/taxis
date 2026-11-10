@@ -3,7 +3,7 @@ import {
   LayoutDashboard, ReceiptText, UsersRound, CarFront, List, Wallet,
   Settings2, Menu, Plus, Search,
   AlertCircle, X, Image as ImageIcon, Clock3,
-  Check,
+  Check, ClipboardList,
 } from 'lucide-react'
 import { VEHICLES, DRIVERS, currentVehicles, currentDrivers, localDate } from './data/catalog.js'
 import { money, number, metrics, filterPeriod, periodStart, groupByKey, reconciliation, dailyRevenue } from './lib/core.js'
@@ -11,6 +11,7 @@ import { getPhoto } from './lib/photos.js'
 import EditRecord from './EditRecord.jsx'
 import EditIcon from './EditIcon.jsx'
 import RevenueChart from './RevenueChart.jsx'
+import ShiftReportsPage from './ShiftReportsPage.jsx'
 
 const CatalogContext = createContext({ vehicles: VEHICLES, drivers: DRIVERS })
 const EditContext = createContext(() => {})
@@ -20,6 +21,7 @@ function NewTabIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" f
 const NAV = [
   { id: 'dashboard', label: 'Inicio', Icon: LayoutDashboard },
   { id: 'tickets', label: 'Viajes y tickets', Icon: ReceiptText },
+  { id: 'reports', label: 'Planillas', Icon: ClipboardList },
   { id: 'shifts', label: 'Turnos', Icon: Clock3 },
   { id: 'drivers', label: 'Conductores', Icon: UsersRound },
   { id: 'fleet', label: 'Flota de taxis', Icon: CarFront },
@@ -240,7 +242,8 @@ export default function Admin({ data, onUpdateTicket, onAddMovement, onEditRecor
   const catalog = useMemo(() => ({ vehicles: currentVehicles(data), drivers: currentDrivers(data) }), [data.catalog])
   const pageConfig = {
     dashboard: ['Centro de operaciones', 'Todo lo que pasa en la flota, en un solo lugar.'],
-    tickets: ['Viajes y tickets', 'Todos los comprobantes, sin planillas intermedias.'],
+    tickets: ['Viajes y tickets', 'Registro de viajes individuales.'],
+    reports: ['Planillas de jornada', 'Revisión de la planilla y el detalle del taxímetro.'],
     shifts: ['Control de turnos', 'Historial de turnos registrados.'],
     drivers: ['Conductores', 'Actividad y rendimiento del equipo.'],
     fleet: ['Flota de taxis', 'Seguimiento de vehículos y recaudación.'],
@@ -253,8 +256,8 @@ export default function Admin({ data, onUpdateTicket, onAddMovement, onEditRecor
     ? { label: 'Nuevo conductor', onClick: () => setCreating('drivers') }
     : page === 'fleet'
       ? { label: 'Nuevo taxi', onClick: () => setCreating('vehicles') }
-      : page === 'tickets'
-        ? { label: 'Subir ticket', href: '/conductor' }
+      : page === 'reports'
+        ? { label: 'Subir jornada', href: '/conductor' }
         : null
   const showPeriod = ['dashboard', 'tickets', 'drivers', 'fleet', 'payroll'].includes(page)
   function goPage(target) {setPage(target);setNavOpen(false);window.scrollTo({top:0,behavior:'smooth'})}
@@ -271,6 +274,7 @@ export default function Admin({ data, onUpdateTicket, onAddMovement, onEditRecor
         <SectionTitle title={title} description={description} action={(showPeriod || pageAction) && <div className="title-actions">{showPeriod && <select className="period-select" aria-label="Período" value={period} onChange={e=>setPeriod(e.target.value)}><option value="1">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option></select>}{pageAction && (pageAction.href ? <a className="button primary section-create" href={pageAction.href} target="_blank" rel="noopener noreferrer" aria-label={`${pageAction.label}, abre una nueva pestaña`}><NewTabIcon/> {pageAction.label}</a> : <button className="button primary section-create" onClick={pageAction.onClick}><Plus size={17}/> {pageAction.label}</button>)}</div>} />
         {page === 'dashboard' && <Dashboard tickets={tickets} data={data} period={period} onPage={goPage} onInspect={setSelectedTicket}/>}
         {page === 'tickets' && <TicketsPage tickets={tickets} onInspect={setSelectedTicket}/>}
+        {page === 'reports' && <ShiftReportsPage data={data}/>}
         {page === 'shifts' && <ShiftsPage data={data}/>}
         {page === 'drivers' && <DriversPage tickets={tickets} commissionPct={data.settings.commissionPct}/>}
         {page === 'fleet' && <FleetPage tickets={tickets}/>}

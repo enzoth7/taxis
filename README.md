@@ -1,6 +1,6 @@
 # Taxi Control
 
-Aplicación local de Vite y React para enviar fotos de tickets y administrar viajes y movimientos de una flota de cinco taxis. El catálogo incluye quince conductores con nombres ficticios. La interfaz usa blanco, azul profundo y tablas con columnas.
+Aplicación de Vite y React para enviar fotos de jornadas y administrar viajes y movimientos de una flota de cinco taxis. El catálogo incluye quince conductores con nombres ficticios. La interfaz usa blanco, azul profundo y tablas con columnas.
 
 ## Iniciar
 
@@ -31,8 +31,9 @@ npm run build
 
 ## Pantallas
 
-- Panel administrativo: Inicio, viajes y tickets, turnos, conductores, flota, movimientos, liquidaciones y configuración.
-- Vista del conductor: selección de nombre, matrícula y fecha, registro del odómetro inicial, foto del ticket y envío para revisión. La fecha se completa con la de hoy y el odómetro se recupera de los tickets del mismo conductor, taxi y día. No muestra importes, ingresos, turnos ni otras secciones administrativas.
+- Panel administrativo: Inicio, viajes y tickets, planillas de jornada, turnos, conductores, flota, movimientos, liquidaciones y configuración.
+- Vista del conductor: selección de nombre, matrícula y fecha, registro del odómetro inicial y envío de la planilla de jornada, el detalle impreso del taxímetro o ambos. La fecha se completa con la de hoy. No muestra importes, ingresos, turnos ni otras secciones administrativas.
+- En Planillas se ven las fotos enviadas desde otro dispositivo al ingresar con el mismo usuario. La revisión permite cargar número de móvil, odómetro final, cantidad de viajes, recaudación de cada fuente y observaciones. Cuando hay dos totales se muestra su diferencia.
 - Las tablas incluyen acciones para editar tickets, turnos, movimientos, conductores y matrículas. Los totales calculados llevan a sus registros o a la configuración del porcentaje.
 - Los quince conductores se asignan inicialmente a cinco taxis. Sus nombres masculinos son ficticios. Las matrículas de muestra van de `IAC 111` a `IAC 115`; las paradas quedan sin asignar hasta contar con datos reales. No hay viajes precargados.
 
@@ -55,16 +56,16 @@ La API se monta en Vite y también funciona con `npm run api`. Guarda el estado 
 
 Los listados aceptan `driverId`, `vehicleId`, `from` y `to` como parámetros de consulta. En el servidor de desarrollo, la interfaz conserva los registros en `localStorage` y los sincroniza con la API local. En la vista previa del celular, los datos de la interfaz quedan en ese navegador y no se sincronizan con la API local.
 
-## Fotos en Supabase
+## Jornadas y fotos en Supabase
 
-La vista del conductor pide ingresar con un usuario de Supabase Auth. Guarda cada foto en el bucket privado `taxi-tickets` con ruta `usuario/conductor/fecha/identificador` y registra sus datos en `public.taxi_ticket_uploads`. Las políticas de la tabla y del bucket solo permiten leer y subir archivos al propietario de la sesión. La foto también se guarda en `IndexedDB` del dispositivo como copia local.
+La vista del conductor pide ingresar con un usuario de Supabase Auth. Guarda una o dos fotos por jornada en el bucket privado `taxi-tickets` con ruta `usuario/conductor/fecha/jornada/tipo-de-foto` y registra sus datos en `public.taxi_shift_reports`. Las políticas de la tabla y del bucket permiten leer y subir archivos al propietario de la sesión. La tabla anterior `public.taxi_ticket_uploads` se conserva para los tickets individuales existentes.
 
 La URL y la clave publicable están en `.env`, excluido del control de versiones. No hay clave de servicio en la aplicación. La selección de conductor atribuye el archivo, pero no verifica quién usa el dispositivo. El usuario de prueba comparte acceso a sus propias fotos entre el celular y la computadora cuando se inicia sesión en ambos.
 
-La aplicación envía cada fotografía a Supabase Storage e inserta sus datos en `/rest/v1/taxi_ticket_uploads`. La revisión todavía es manual: el panel administrativo local no recibe automáticamente las fotos de otros dispositivos. Para leerlas desde una cuenta administradora hacen falta un flujo de acceso y permisos específicos.
+La aplicación envía las fotografías a Supabase Storage e inserta una fila en `/rest/v1/taxi_shift_reports`. La pestaña Planillas consulta la misma tabla y permite editar los datos revisados. Actualmente el usuario de prueba es compartido: cualquiera con esas credenciales puede abrir el panel y revisar las fotos. Para uso real hacen falta cuentas individuales y permisos separados para conductores y administradores.
 
 ## Alcance actual
 
-La API local escucha solo en `127.0.0.1`. Cualquier proceso local con acceso al puerto puede consultar y reemplazar su estado, por lo que no se debe publicar como servidor accesible desde una red. La vista previa para celular sirve archivos estáticos y se conecta a Supabase para subir fotos, pero no ofrece autenticación administrativa ni bloquea el acceso a otras rutas de la aplicación.
+La API local escucha solo en `127.0.0.1`. Cualquier proceso local con acceso al puerto puede consultar y reemplazar su estado, por lo que no se debe publicar como servidor accesible desde una red. El panel sigue teniendo secciones que guardan datos localmente; solo las planillas y sus fotos se sincronizan mediante Supabase.
 
-Los ingresos y liquidaciones son estimaciones calculadas con el porcentaje configurado sobre los tickets registrados. No equivalen a pagos ni recibos de sueldo. El OCR con OpenAI y el MCP para ChatGPT tienen rutas reservadas, pero no están configurados ni ejecutan llamadas externas. Una tarea programada de ChatGPT no tiene acceso automático a las imágenes privadas de este proyecto. Por ahora, para transcribir un ticket en ChatGPT, adjuntá la foto en el chat y revisá los datos antes de registrarlos. Las claves de servicios futuros deben quedar en un backend privado, nunca en variables `VITE_` ni en el navegador. Ver [contratos de integración](server/CONTRATOS.md).
+Los ingresos y liquidaciones son estimaciones calculadas con el porcentaje configurado sobre los tickets individuales registrados. Las planillas revisadas todavía no alimentan esos indicadores. El OCR con OpenAI y el MCP para ChatGPT tienen rutas reservadas, pero no están configurados ni ejecutan llamadas externas. Una tarea programada de ChatGPT Plus no tiene acceso automático a las imágenes privadas de este proyecto. Por ahora, para transcribir una jornada en ChatGPT, adjuntá las fotos en el chat, verificá los campos dudosos y cargá los datos en Planillas. Las claves de servicios futuros deben quedar en un backend privado, nunca en variables `VITE_` ni en el navegador. Ver [contratos de integración](server/CONTRATOS.md).

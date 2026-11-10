@@ -151,6 +151,30 @@ select { appearance:none; -webkit-appearance:none; background-image:none; paddin
 .driver-login-form { display:flex; flex-direction:column; gap:18px; max-width:440px; margin:32px auto 0; }
 .driver-login-form h1 { font-size:36px; font-weight:600; margin:0 0 10px; }
 .driver-login-form .form-error { margin:0; }
+.shift-photo-picker { display:flex; flex-direction:column; gap:10px; }
+.shift-photo-picker > strong { font-size:15px; font-weight:700; }
+.shift-photo-picker .upload-zone { min-height:190px; gap:13px; }
+.shift-photo-picker .upload-preview { height:210px; }
+.photo-remove { display:inline-flex; align-items:center; gap:6px; border:0; background:#fff; color:#0B1F33; text-decoration:underline; padding:5px; }
+.report-table { border:1px solid #0B1F33; border-radius:14px; }
+.report-refresh { margin:0 0 14px; font-size:13px; font-weight:600; }
+.report-empty { border:1px solid #0B1F33; border-radius:14px; padding:35px; text-align:center; }
+.report-login { display:flex; flex-direction:column; gap:15px; max-width:440px; }
+.report-login h2 { font-size:23px; }
+.report-login label,.shift-review-fields label { display:flex; flex-direction:column; gap:7px; font-size:13px; font-weight:600; }
+.report-login input { min-height:43px; }
+.shift-review-modal { max-width:950px; }
+.shift-review-identification { display:flex; flex-wrap:wrap; gap:8px 20px; margin-bottom:18px; font-size:13px; }
+.shift-review-photos { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-bottom:22px; }
+.shift-review-photos > div { min-width:0; display:flex; flex-direction:column; gap:9px; }
+.shift-review-photos strong { font-size:14px; }
+.shift-review-photos a { display:block; border:1px solid #0B1F33; border-radius:12px; overflow:hidden; }
+.shift-review-photos img { width:100%; height:320px; object-fit:contain; display:block; }
+.shift-review-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:15px; }
+.shift-review-fields textarea { min-height:80px; resize:vertical; padding:11px; }
+.shift-review-difference { margin-top:20px; padding:14px 0; border-top:1px solid #0B1F33; font-size:13px; }
+.shift-review-difference strong { margin-left:8px; }
+@media(max-width:600px) { .shift-review-photos,.shift-review-fields { grid-template-columns:1fr; } .shift-review-photos img { height:300px; } }
 
 .dashboard-kpis { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:20px; }
 .dashboard-kpi { min-width:0; min-height:154px; display:flex; flex-direction:column; padding:21px 23px; border:1px solid #0B1F33; border-radius:14px; background:#fff; color:#0B1F33; animation:dashboard-enter 240ms cubic-bezier(.23,1,.32,1) both; }

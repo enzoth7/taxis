@@ -4,6 +4,7 @@ import Driver from './Driver.jsx'
 import { STORAGE_KEY, loadState, saveState, loadServerState, syncServerState } from './lib/persistence.js'
 import { savePhoto } from './lib/photos.js'
 import { uploadTicketPhoto } from './lib/remoteTickets.js'
+import { uploadShiftReport } from './lib/shiftReports.js'
 import { isDuplicateTicket, safeId } from './lib/core.js'
 
 export default function App() {
@@ -60,6 +61,12 @@ export default function App() {
     return ticket
   }
 
+  async function addShiftReport(values, photos) {
+    const report = await uploadShiftReport(values, photos)
+    toast('Jornada recibida para revisión.')
+    return report
+  }
+
   function updateTicket(id, status) {
     setData(previous => ({ ...previous, tickets: previous.tickets.map(t => t.id === id ? { ...t, status } : t) }))
     toast(status === 'validado' ? 'Ticket validado.' : 'Ticket marcado para revisión.')
@@ -92,7 +99,7 @@ export default function App() {
 
   return <>
     {isDriverPage
-      ? <Driver data={data} onAddTicket={addTicket} />
+      ? <Driver data={data} onAddShiftReport={addShiftReport} />
       : <Admin data={data} onUpdateTicket={updateTicket} onAddMovement={addMovement} onEditRecord={editRecord} onAddCatalogRecord={addCatalogRecord} onUpdateSettings={updateSettings} onToast={toast} />}
     {notice && <div className="toast" role="status" aria-live="polite">{notice}</div>}
   </>
