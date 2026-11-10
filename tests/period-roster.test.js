@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { dateRange, dailyRevenueRange, inDateRange } from '../src/lib/core.js'
+import { dateRange, recordedMonthBounds, monthRange, dailyRevenueRange, inDateRange } from '../src/lib/core.js'
 import { buildMobileRoster } from '../src/lib/mobileRoster.js'
 
 test('mes y todo incluyen los registros correctos hasta hoy', () => {
@@ -15,6 +15,15 @@ test('mes y todo incluyen los registros correctos hasta hoy', () => {
   assert.equal(series.length, 30)
   assert.equal(series[1].amount, 150)
   assert.equal(series.at(-1).amount, 0)
+})
+
+test('el rango mensual inicia y termina en los meses con registros y admite cambios', () => {
+  const now = new Date(2026, 10, 9)
+  const months = recordedMonthBounds(['2025-11-20', '2023-07-11', '2026-11-10', '2024-02-02'], now)
+  assert.deepEqual(months, { first: '2023-07', last: '2025-11' })
+  assert.deepEqual(monthRange(months.first, months.last, now), { start: '2023-07-01', end: '2025-11-30' })
+  assert.deepEqual(monthRange('2024-02', '2024-03', now), { start: '2024-02-01', end: '2024-03-31' })
+  assert.deepEqual(monthRange('2026-11', '2026-11', now), { start: '2026-11-01', end: '2026-11-09' })
 })
 
 test('un móvil admite varios choferes y un chofer varios móviles', () => {

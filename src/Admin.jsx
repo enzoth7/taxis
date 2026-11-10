@@ -1,41 +1,90 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import {
   LayoutDashboard, ReceiptText, UsersRound, CarFront, List, Wallet,
-  Settings2, Menu, Plus, Search,
-  AlertCircle, X, Image as ImageIcon, Clock3,
+  BarChart3, CalendarDays, Menu, Plus, Search,
+  AlertCircle, Eye, X, Image as ImageIcon, Clock3,
   Check, ClipboardList,
 } from 'lucide-react'
 import { VEHICLES, DRIVERS, currentVehicles, currentDrivers, localDate } from './data/catalog.js'
-import { money, number, metrics, dateRange, inDateRange, dailyRevenueRange, groupByKey, reconciliation } from './lib/core.js'
+import { money, number, metrics, recordedMonthBounds, monthRange, inDateRange, dailyRevenueRange, groupByKey } from './lib/core.js'
 import { buildMobileRoster, mobileLabel, mobileNumberForId } from './lib/mobileRoster.js'
 import { getPhoto } from './lib/photos.js'
 import EditRecord from './EditRecord.jsx'
 import EditIcon from './EditIcon.jsx'
 import RevenueChart from './RevenueChart.jsx'
-import ShiftReportsPage from './ShiftReportsPage.jsx'
+import ShiftReportsPage, { PhotoViewer } from './ShiftReportsPage.jsx'
+import CalendarPage from './CalendarPage.jsx'
+import PerformancePage from './PerformancePage.jsx'
+import MonthlyActivityChart from './MonthlyActivityChart.jsx'
+import ColumnFilter from './ColumnFilter.jsx'
 import { supabase } from './lib/supabase.js'
+import { downloadShiftPhoto } from './lib/shiftReports.js'
+import { orientedPhotoBlob, photoRotation } from './lib/photoOrientation.js'
+import { driverMonthlySummary, mobileMonthlySummary } from './lib/driverMonthly.js'
+import { monthlyActivity } from './lib/monthlyActivity.js'
 
 const CatalogContext = createContext({ vehicles: VEHICLES, drivers: DRIVERS })
 const EditContext = createContext(() => {})
 function EditAction({ label, onClick }) { return <button type="button" className="edit-action" onClick={onClick} aria-label={`Editar ${label}`} title={`Editar ${label}`}><EditIcon/></button> }
+function MissingValue({ children }) { return <em className="missing-value">{children}</em> }
 function NewTabIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M13 3h8v8"/><path d="m10 14 11-11"/></svg> }
 
 const NAV = [
   { id: 'dashboard', label: 'Inicio', Icon: LayoutDashboard },
-  { id: 'tickets', label: 'Viajes y tickets', Icon: ReceiptText },
   { id: 'reports', label: 'Planillas', Icon: ClipboardList },
   { id: 'shifts', label: 'Turnos', Icon: Clock3 },
   { id: 'drivers', label: 'Conductores', Icon: UsersRound },
   { id: 'fleet', label: 'Flota de taxis', Icon: CarFront },
   { id: 'movements', label: 'Movimientos', Icon: List },
-  { id: 'payroll', label: 'Liquidaciones', Icon: Wallet },
-  { id: 'settings', label: 'Configuración', Icon: Settings2 },
+  { id: 'calendar', label: 'Calendario', Icon: CalendarDays },
+  { id: 'performance', label: 'Rendimiento', Icon: BarChart3 },
 ]
 
 const STATUS = {
   validado: ['Validado', 'ok'],
   revision: ['A revisar', 'warning'],
   manual: ['Manual', 'neutral'],
+}
+
+const SHIFT_FILTER_COLUMNS = [
+  { key: 'date', label: 'Fecha' },
+  { key: 'mobile', label: 'Móvil' },
+  { key: 'driver', label: 'Conductor' },
+  { key: 'shift', label: 'Turno' },
+  { key: 'sales', label: 'Entradas' },
+  { key: 'commission', label: 'Comisión' },
+  { key: 'odometerStart', label: 'Km inicial' },
+  { key: 'odometerEnd', label: 'Km final' },
+]
+const DRIVER_FILTER_COLUMNS = [
+  { key: 'driver', label: 'Conductor' },
+  { key: 'document', label: 'Documento' },
+  { key: 'phone', label: 'Teléfono' },
+  { key: 'license', label: 'Licencia' },
+  { key: 'mobiles', label: 'Móviles' },
+  { key: 'stand', label: 'Parada' },
+  { key: 'status', label: 'Estado' },
+  { key: 'shifts', label: 'Jornadas' },
+  { key: 'km', label: 'Kilómetros' },
+  { key: 'sales', label: 'Entradas' },
+  { key: 'commission', label: 'Comisión' },
+]
+
+function columnOptions(rows, columns) {
+  return Object.fromEntries(columns.map(({ key }) => [key, [...new Set(rows.flatMap(row => {
+    const value = row.filterValues?.[key] ?? row.values[key]
+    return Array.isArray(value) ? value : [value]
+  }))].sort((a, b) => String(a).localeCompare(String(b), 'es', { numeric: true }))]))
+}
+function matchesColumnFilters(row, filters, columns) {
+  return columns.every(({ key }) => {
+    if (!filters[key]) return true
+    const value = row.filterValues?.[key] ?? row.values[key]
+    return Array.isArray(value) ? value.includes(filters[key]) : value === filters[key]
+  })
+}
+function FilteredHeader({ columns, filters, openFilter, setOpenFilter, setFilters, options, onChange }) {
+  return <thead><tr>{columns.map(({ key, label }) => <th key={key}><ColumnFilter label={label} value={filters[key] || ''} options={options[key]} open={openFilter === key} onToggle={() => setOpenFilter(current => current === key ? null : key)} onClose={() => setOpenFilter(null)} onChange={value => { setFilters(current => ({ ...current, [key]: value })); onChange?.() }}/></th>)}<th>Acciones</th></tr></thead>
 }
 
 function Badge({ kind = 'neutral', children }) { return <em className={`badge badge-${kind}`}>{children}</em> }
@@ -67,15 +116,14 @@ function Panel({ title, subtitle, action, children, className = '' }) {
 function SectionTitle({ title, description, action }) {
   return <div className="section-title"><div><h1>{title}</h1><div className="body-copy">{description}</div></div>{action}</div>
 }
-function PeriodPicker({ period, month, onPeriod, onMonth }) {
-  return <div className="period-picker">
-    <select className="period-select" aria-label="Período" value={period} onChange={event => onPeriod(event.target.value)}>
-      <option value="1">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="month">Mes</option><option value="all">Todo</option>
-    </select>
-    {period === 'month' && <input type="month" aria-label="Seleccionar mes" value={month} max={localDate().slice(0, 7)} onInput={event => onMonth(event.currentTarget.value)} onChange={event => onMonth(event.currentTarget.value)}/>}
+function PeriodPicker({ fromMonth, toMonth, onFromMonth, onToMonth }) {
+  const latestMonth = localDate().slice(0, 7)
+  return <div className="period-picker" role="group" aria-label="Filtrar por meses">
+    <label>Desde<input type="month" value={fromMonth} max={latestMonth} onChange={event => onFromMonth(event.target.value)}/></label>
+    <label>Hasta<input type="month" value={toMonth} max={latestMonth} onChange={event => onToMonth(event.target.value)}/></label>
   </div>
 }
-function VehicleLabel({ id }) { const { vehicles } = useContext(CatalogContext); const vehicle = vehicles.find(v => v.id === id); return vehicle ? mobileLabel(vehicle) : 'Sin identificar' }
+function VehicleLabel({ id }) { const { vehicles } = useContext(CatalogContext); const vehicle = vehicles.find(v => v.id === id); return vehicle ? mobileLabel(vehicle) : <MissingValue>Sin identificar</MissingValue> }
 function DriverLabel({ id }) { const { drivers } = useContext(CatalogContext); return drivers.find(d => d.id === id)?.name || '—' }
 function Empty({ icon: Icon = ReceiptText, title = 'Sin registros', text = 'Todavía no hay datos para mostrar.' }) {
   return <div className="empty"><Icon size={25} /><strong>{title}</strong><div className="body-copy">{text}</div></div>
@@ -125,7 +173,7 @@ function TicketDetail({ ticket, onClose, onUpdateTicket }) {
       <div><em>Conductor</em><strong><DriverLabel id={ticket.driverId}/></strong></div>
       <div><em>Vehículo</em><strong><VehicleLabel id={ticket.vehicleId}/></strong></div>
       <div><em>Fecha y hora</em><strong>{ticket.date}, {ticket.time}</strong></div>
-      <div><em>Odómetro inicial</em><strong>{ticket.odometerStartKm == null ? 'Sin registrar' : `${number(ticket.odometerStartKm)} km`}</strong></div>
+      <div><em>Odómetro inicial</em><strong>{ticket.odometerStartKm == null ? <MissingValue>Sin registrar</MissingValue> : `${number(ticket.odometerStartKm)} km`}</strong></div>
       <div><em>Distancia</em><strong>{ticket.distanceKm == null ? 'Por completar' : `${number(ticket.distanceKm, 1)} km`}</strong></div>
       <div><em>Forma de pago</em><strong>{ticket.payment === 'tarjeta' ? 'Tarjeta' : ticket.payment === 'transferencia' ? 'Transferencia' : ticket.payment === 'efectivo' ? 'Efectivo' : 'Por completar'}</strong></div>
     </div>
@@ -135,9 +183,8 @@ function TicketDetail({ ticket, onClose, onUpdateTicket }) {
   </div></div>
 }
 
-function Dashboard({ tickets, data, range, onPage, onInspect, reports, reportsError, authSession, archiveShifts, roster }) {
-  const { vehicles, drivers: catalogDrivers } = useContext(CatalogContext)
-  const edit = useContext(EditContext)
+function Dashboard({ range, onPage, reports, reportsError, authSession, archiveShifts }) {
+  const { vehicles } = useContext(CatalogContext)
   const [email, setEmail] = useState('prueba.taxis@example.com')
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -153,16 +200,15 @@ function Dashboard({ tickets, data, range, onPage, onInspect, reports, reportsEr
     } catch { setLoginError('No se pudo ingresar. Revisá el correo y la contraseña.') }
     finally { setLoggingIn(false) }
   }
-  const m = metrics(tickets, data.settings.commissionPct)
   const visibleReports = reports.filter(report => inDateRange(report.shift_date, range))
   const visibleArchive = archiveShifts.filter(row => inDateRange(row.record_date, range))
   const reportSales = visibleReports.reduce((sum, report) => sum + Number(report.reported_sales_uyu || 0), 0)
-  const reportKm = visibleReports.reduce((sum, report) => sum + Math.max(0, Number(report.odometer_end_km || 0) - Number(report.odometer_start_km || 0)), 0)
-  const reportPending = visibleReports.filter(report => report.status === 'revision')
-  const archivedByDriver = historicalStats(visibleArchive)
+  const reportKm = visibleReports.reduce((sum, report) => report.odometer_start_km != null && report.odometer_end_km != null ? sum + Math.max(0, Number(report.odometer_end_km) - Number(report.odometer_start_km)) : sum, 0)
   const archiveSales = visibleArchive.reduce((sum, row) => sum + Number(row.sales_uyu || 0), 0)
   const archiveKm = visibleArchive.reduce((sum, row) => row.odometer_start_km != null && row.odometer_end_km != null ? sum + Math.max(0, Number(row.odometer_end_km) - Number(row.odometer_start_km)) : sum, 0)
-  const fleet = groupByKey(tickets, 'vehicleId')
+  const activity = monthlyActivity(visibleArchive, visibleReports, range)
+  const shiftsWithAmount = [...visibleArchive.map(row => row.sales_uyu), ...visibleReports.map(report => report.reported_sales_uyu)]
+    .filter(value => value != null && value !== '' && Number.isFinite(Number(value))).length
   const fleetStats = {}
   for (const row of visibleArchive) {
     if (!/^\d+$/.test(row.mobile_number || '')) continue
@@ -175,46 +221,38 @@ function Dashboard({ tickets, data, range, onPage, onInspect, reports, reportsEr
     item.shifts += 1; item.sales += Number(report.reported_sales_uyu || 0)
   }
   const fleetRows = [...vehicles, ...Object.keys(fleetStats).filter(mobile => !vehicles.some(vehicle => vehicle.mobileNumber === mobile)).map(mobileNumber => ({ id: `movil-${mobileNumber}`, mobileNumber }))]
-  const pending = tickets.filter(t=>t.status === 'revision')
-  const movements = data.movements.filter(item => inDateRange(item.date, range))
-  const revenue = authSession?.user
-    ? dailyRevenueRange([...visibleArchive.map(row => ({ date: row.record_date, amount: row.sales_uyu })), ...visibleReports.map(report => ({ date: report.shift_date, amount: report.reported_sales_uyu }))], range)
-    : dailyRevenueRange(tickets, range)
+  const revenue = dailyRevenueRange([...visibleArchive.map(row => ({ date: row.record_date, amount: row.sales_uyu })), ...visibleReports.map(report => ({ date: report.shift_date, amount: report.reported_sales_uyu }))], range)
+  const recentJornadas = [...visibleArchive.map(row => ({ id: row.id, date: row.record_date, driver: row.driver_name, mobile: row.mobile_number, sales: row.sales_uyu, kind: 'hoja' })), ...visibleReports.map(report => ({ id: report.id, date: report.shift_date, driver: report.driver_name, mobile: report.mobile_number, sales: report.reported_sales_uyu, kind: 'conductor' }))]
+    .sort((a, b) => b.date.localeCompare(a.date) || String(b.id).localeCompare(String(a.id))).slice(0, 6)
+  if (authSession === undefined) return <div className="report-access-status">Cargando jornadas...</div>
+  if (!authSession?.user) return <form className="dashboard-access-form" onSubmit={signIn}>
+    <h2>Ingresar para ver las jornadas</h2>
+    <label>Correo<input type="email" value={email} onChange={event => setEmail(event.target.value)} required/></label>
+    <label>Contraseña<input type="password" value={password} onChange={event => setPassword(event.target.value)} required/></label>
+    <button type="submit" className="button primary" disabled={loggingIn || !supabase}>{loggingIn ? 'Ingresando...' : 'Ingresar'}</button>
+    {loginError && <div className="form-error" role="alert">{loginError}</div>}
+    {!supabase && <div className="form-error" role="alert">La conexión con las jornadas no está configurada.</div>}
+  </form>
+  if (reportsError) return <div className="form-error" role="alert">{reportsError}</div>
   return <div className="dashboard-stack">
     <div className="dashboard-kpis" aria-label="Indicadores del período seleccionado">
-      <div className="dashboard-kpi dashboard-kpi-primary"><div>{authSession?.user ? 'Entradas registradas' : 'Recaudación bruta'}</div><strong>{money(authSession?.user ? archiveSales + reportSales : m.gross)}</strong><small>Importes registrados</small></div>
-      <div className="dashboard-kpi"><div>{authSession?.user ? 'Jornadas' : 'Viajes registrados'}</div><strong>{number(authSession?.user ? visibleArchive.length + visibleReports.length : m.trips)}</strong><small>{authSession?.user ? 'Registros del período' : 'Tickets del período'}</small></div>
-      <div className="dashboard-kpi"><div>{authSession?.user ? 'Kilómetros recorridos' : 'Kilómetros de viajes'}</div><strong>{number(authSession?.user ? archiveKm + reportKm : m.km, 1)} km</strong><small>Distancia registrada</small></div>
-      <div className="dashboard-kpi"><div>Para revisar</div><strong>{number(authSession?.user ? reportPending.length : m.pending)}</strong><small>{authSession?.user ? 'Jornadas pendientes' : 'Tickets pendientes'}</small></div>
+      <div className="dashboard-kpi dashboard-kpi-primary"><div>Entradas registradas</div><strong>{money(archiveSales + reportSales)}</strong><small>Importes del período</small></div>
+      <div className="dashboard-kpi"><div>Jornadas</div><strong>{number(visibleArchive.length + visibleReports.length)}</strong><small>Registros del período</small></div>
+      <div className="dashboard-kpi"><div>Kilómetros recorridos</div><strong>{number(archiveKm + reportKm, 1)} km</strong><small>Distancia registrada</small></div>
+      <div className="dashboard-kpi"><div>Entrada media por jornada</div><strong>{shiftsWithAmount ? money((archiveSales + reportSales) / shiftsWithAmount) : '—'}</strong><small>Jornadas con importe registrado</small></div>
     </div>
-    <Panel title="Jornadas recibidas" subtitle="Cierres enviados desde la vista del conductor" action={authSession?.user && <button className="text-link" onClick={() => onPage('reports')}>Ver planillas</button>}>
-      {authSession === undefined ? <div className="report-access-status">Cargando jornadas...</div>
-        : !authSession ? <form className="report-access-form" onSubmit={signIn}><div>Ingresá para ver las jornadas guardadas en Supabase.</div><label>Correo<input type="email" value={email} onChange={event => setEmail(event.target.value)} required/></label><label>Contraseña<input type="password" value={password} onChange={event => setPassword(event.target.value)} required/></label><button type="submit" className="button primary" disabled={loggingIn}>{loggingIn ? 'Ingresando...' : 'Ingresar'}</button>{loginError && <div className="form-error" role="alert">{loginError}</div>}</form>
-        : reportsError ? <div className="form-error" role="alert">{reportsError}</div>
-        : visibleReports.length === 0 ? <Empty title="Sin jornadas en este período" text="Probá con otro período o enviá un cierre desde el celular."/>
-        : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Venta declarada</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleReports.slice(0, 6).map(report => <tr key={report.id}><td>{report.shift_date}</td><td><strong>{report.driver_name || catalogDrivers.find(driver => driver.id === report.driver_id)?.name || 'Sin identificar'}</strong></td><td>{report.mobile_number || mobileNumberForId(report.vehicle_id, vehicles) || 'Sin indicar'}</td><td className="amount">{report.reported_sales_uyu == null ? 'Sin registrar' : money(Number(report.reported_sales_uyu))}</td><td><Badge kind={report.status === 'validado' ? 'ok' : 'warning'}>{report.status === 'validado' ? 'Validado' : 'A revisar'}</Badge></td><td><EditAction label={`jornada del ${report.shift_date}`} onClick={() => onPage('reports')}/></td></tr>)}</tbody></table></div>}
-    </Panel>
     <div className="dashboard-grid">
-      <Panel title="Recaudación diaria" subtitle={authSession?.user ? 'Entradas registradas por día' : 'Ingresos brutos registrados por día'}>
-        <RevenueChart series={revenue}/>
+      <Panel title="Recaudación diaria" subtitle="Entradas registradas por día">
+      <RevenueChart key={`${range.start}-${range.end}`} series={revenue} showPoints={revenue.length <= 31}/>
       </Panel>
       <Panel title="Estado de la flota" subtitle="Rendimiento por vehículo" action={<button className="text-link" onClick={() => onPage('fleet')}>Ver flota</button>}>
-        <div className="table-scroller"><table className="data-table"><thead><tr><th>Móvil</th><th>{authSession?.user ? 'Jornadas' : 'Viajes'}</th><th>Entradas</th><th>Acciones</th></tr></thead><tbody>{fleetRows.map(vehicle => <tr key={vehicle.id}><td><strong>{vehicle.mobileNumber || 'Sin número'}</strong></td><td>{authSession?.user ? (fleetStats[vehicle.mobileNumber]?.shifts || 0) : (fleet[vehicle.id]?.trips || 0)}</td><td className="amount">{money(authSession?.user ? (fleetStats[vehicle.mobileNumber]?.sales || 0) : (fleet[vehicle.id]?.amount || 0))}</td><td><EditAction label={`móvil ${vehicle.mobileNumber || 'sin número'}`} onClick={() => onPage('fleet')}/></td></tr>)}</tbody></table></div>
+        <div className="table-scroller"><table className="data-table mobile-card-table dashboard-fleet-table"><thead><tr><th>Móvil</th><th>Matrícula</th><th>Jornadas</th><th>Entradas</th><th>Acciones</th></tr></thead><tbody>{fleetRows.map(vehicle => <tr key={vehicle.id}><td data-label="Móvil"><strong>{vehicle.mobileNumber ? `Móvil ${vehicle.mobileNumber}` : 'Sin número'}</strong></td><td data-label="Matrícula">{vehicle.plate || '—'}</td><td data-label="Jornadas">{fleetStats[vehicle.mobileNumber]?.shifts || 0}</td><td data-label="Entradas" className="amount">{money(fleetStats[vehicle.mobileNumber]?.sales || 0)}</td><td data-label="Acciones"><EditAction label={`móvil ${vehicle.mobileNumber || 'sin número'}`} onClick={() => onPage('fleet')}/></td></tr>)}</tbody></table></div>
       </Panel>
     </div>
     <div className="dashboard-grid bottom-grid">
-      <Panel title="Últimos tickets" subtitle="Actividad reciente de los conductores" action={<button className="text-link" onClick={() => onPage('tickets')}>Ver todos</button>}><TicketTable tickets={tickets} onInspect={onInspect} compact/></Panel>
-      <Panel title="Para revisar" subtitle={authSession?.user ? 'Jornadas que requieren validación' : 'Tickets que requieren validación'} action={<Badge kind={(authSession?.user ? reportPending : pending).length ? 'warning' : 'ok'}>{(authSession?.user ? reportPending : pending).length} pendientes</Badge>}>
-        {authSession?.user ? reportPending.length === 0 ? <Empty title="Sin pendientes" text="No hay jornadas por revisar en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Acciones</th></tr></thead><tbody>{reportPending.slice(0, 5).map(report => <tr key={report.id}><td>{report.shift_date}</td><td>{report.driver_name || catalogDrivers.find(driver => driver.id === report.driver_id)?.name || 'Sin identificar'}</td><td>{report.mobile_number || mobileNumberForId(report.vehicle_id, vehicles) || 'Sin indicar'}</td><td><EditAction label={`jornada del ${report.shift_date}`} onClick={() => onPage('reports')}/></td></tr>)}</tbody></table></div>
-          : pending.length === 0 ? <Empty title="Sin pendientes" text="No hay tickets por revisar en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Ticket</th><th>Conductor</th><th>Móvil</th><th>Importe</th><th>Acciones</th></tr></thead><tbody>{pending.slice(0,5).map(ticket => <tr key={ticket.id}><td>{ticket.ticketNumber || 'Sin número'}</td><td><DriverLabel id={ticket.driverId}/></td><td><VehicleLabel id={ticket.vehicleId}/></td><td className="amount">{ticket.amount == null ? 'Por completar' : money(ticket.amount)}</td><td><EditAction label={`ticket ${ticket.ticketNumber || ticket.id}`} onClick={() => edit('tickets', ticket)}/></td></tr>)}</tbody></table></div>}
-      </Panel>
-    </div>
-    <div className="dashboard-grid bottom-grid">
-      <Panel title="Movimientos" subtitle="Ingresos y gastos del período" action={<button className="text-link" onClick={() => onPage('movements')}>Ver movimientos</button>}>
-        {movements.length === 0 ? <Empty title="Sin movimientos" text="No hay movimientos en este período."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Detalle</th><th>Tipo</th><th>Importe</th><th>Acciones</th></tr></thead><tbody>{movements.slice(0,5).map(item => <tr key={item.id}><td>{item.date}</td><td>{item.description}</td><td>{item.kind === 'egreso' ? 'Egreso' : 'Ingreso'}</td><td className="amount">{money(item.amount)}</td><td><EditAction label={`movimiento ${item.description}`} onClick={() => edit('movements', item)}/></td></tr>)}</tbody></table></div>}
-      </Panel>
-      <Panel title="Conductores" subtitle={`${catalogDrivers.length} conductores identificados`} action={<button className="text-link" onClick={() => onPage('drivers')}>Ver conductores</button>}>
-        <div className="table-scroller"><table className="data-table"><thead><tr><th>Conductor</th><th>Móviles</th><th>Jornadas</th><th>Acciones</th></tr></thead><tbody>{catalogDrivers.slice(0,5).map(driver => <tr key={driver.id}><td><strong>{driver.name}</strong></td><td>{roster.mobilesForDriver(driver.name).join(', ') || '—'}</td><td>{archivedByDriver[driver.sourceName || driver.name]?.shifts || 0}</td><td><EditAction label={`conductor ${driver.name}`} onClick={() => edit('drivers', driver)}/></td></tr>)}</tbody></table></div>
+      <Panel title="Últimas jornadas" subtitle="Registros recientes" action={<button className="text-link" onClick={() => onPage('reports')}>Ver planillas</button>}>{recentJornadas.length === 0 ? <Empty title="Sin jornadas" text="Todavía no hay registros en este período."/> : <div className="table-scroller"><table className="data-table mobile-card-table dashboard-recent-table"><thead><tr><th>Fecha</th><th>Origen</th><th>Conductor</th><th>Móvil</th><th>Entradas</th></tr></thead><tbody>{recentJornadas.map(row => <tr key={`${row.kind}-${row.id}`}><td data-label="Fecha">{row.date}</td><td data-label="Origen">{row.kind === 'hoja' ? 'Histórica' : 'Conductor'}</td><td data-label="Conductor">{row.driver || <MissingValue>Sin identificar</MissingValue>}</td><td data-label="Móvil">{row.mobile || 'Sin indicar'}</td><td data-label="Entradas" className="amount">{row.sales == null ? <MissingValue>Sin registrar</MissingValue> : money(Number(row.sales))}</td></tr>)}</tbody></table></div>}</Panel>
+      <Panel title="Actividad mensual" subtitle="Últimos seis meses con jornadas del período">
+        <MonthlyActivityChart months={activity}/>
       </Panel>
     </div>
   </div>
@@ -232,6 +270,7 @@ function TicketsPage({ tickets, onInspect }) {
 }
 
 function ArchiveEdit({ row, onClose, onSave }) {
+  const [photoUrl, setPhotoUrl] = useState(null)
   const [form, setForm] = useState({
     record_date: row.record_date || '', mobile_number: row.mobile_number || '',
     driver_name: row.driver_name || '', shift_label: row.shift_label || '',
@@ -241,6 +280,17 @@ function ArchiveEdit({ row, onClose, onSave }) {
   })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    if (!row.archive_photo_path) return undefined
+    let active = true
+    let url = null
+    downloadShiftPhoto(row.archive_photo_path).then(blob => orientedPhotoBlob(blob, photoRotation(row))).then(blob => {
+      if (!active || !blob) return
+      url = URL.createObjectURL(blob)
+      setPhotoUrl(url)
+    }).catch(() => { if (active) setError('No se pudo abrir la foto de la planilla.') })
+    return () => { active = false; if (url) URL.revokeObjectURL(url) }
+  }, [row.archive_photo_path, row.foto_datos_extraidos, row.extracted_data])
   function field(name, title, type = 'text') {
     return <label key={name}>{title}<input type={type} step={type === 'number' ? 'any' : undefined} value={form[name]} onChange={event => setForm(previous => ({ ...previous, [name]: event.target.value }))}/></label>
   }
@@ -261,8 +311,10 @@ function ArchiveEdit({ row, onClose, onSave }) {
   }
   return <div className="modal-overlay" role="presentation" onMouseDown={onClose}><form className="modal shift-review-modal" role="dialog" aria-modal="true" aria-label="Editar jornada histórica" onMouseDown={event => event.stopPropagation()} onSubmit={submit}>
     <header className="modal-head"><h2>Editar jornada histórica</h2><button type="button" className="icon-only" onClick={onClose} aria-label="Cerrar"><X size={20}/></button></header>
-    <div className="body-copy archive-source">{row.source_file_title}, {row.source_tab}, fila {row.source_row}. Conductor original: {row.driver_name_raw || 'sin identificar'}.</div>
-    <a className="text-link archive-source-link" href={`https://docs.google.com/spreadsheets/d/${row.source_file_id}/edit`} target="_blank" rel="noopener noreferrer"><NewTabIcon/> Abrir hoja de origen</a>
+    <div className="body-copy archive-source">{row.source_file_title}, {row.source_tab}, fila {row.source_row}. Conductor original: {row.driver_name_raw || <MissingValue>sin identificar</MissingValue>}.</div>
+    {row.archive_photo_path
+      ? photoUrl && <a className="text-link archive-source-link" href={photoUrl} target="_blank" rel="noopener noreferrer"><NewTabIcon/> Abrir planilla</a>
+      : <a className="text-link archive-source-link" href={`https://docs.google.com/spreadsheets/d/${row.source_file_id}/edit`} target="_blank" rel="noopener noreferrer"><NewTabIcon/> Abrir hoja de origen</a>}
     <div className="shift-review-fields">
       {field('record_date', 'Fecha', 'date')}{field('mobile_number', 'Número del móvil')}
       {field('driver_name', 'Conductor')}{field('shift_label', 'Horario anotado')}
@@ -275,45 +327,108 @@ function ArchiveEdit({ row, onClose, onSave }) {
   </form></div>
 }
 
-function ShiftsPage({ data, archiveShifts, archiveError, authSession, onEditArchive, range }) {
-  const edit = useContext(EditContext)
-  const [mobile, setMobile] = useState('todos')
-  const [query, setQuery] = useState('')
+function ShiftsPage({ archiveShifts, reports, archiveError, authSession, onEditArchive, onPage, range }) {
+  const [filters, setFilters] = useState({})
+  const [openFilter, setOpenFilter] = useState(null)
   const [page, setPage] = useState(0)
   const [selected, setSelected] = useState(null)
-  const visible = archiveShifts.filter(row => inDateRange(row.record_date, range) && (mobile === 'todos' || row.mobile_number === mobile) && (!query || (row.driver_name || row.driver_name_raw || '').toLowerCase().includes(query.toLowerCase())))
+  const [photoSources, setPhotoSources] = useState(null)
+  const jornadas = [
+    ...archiveShifts.map(row => ({ ...row, source_kind: 'hoja' })),
+    ...reports.map(row => ({
+      ...row, source_kind: 'conductor', record_date: row.shift_date,
+      sales_uyu: row.reported_sales_uyu, commission_uyu: row.reported_commission_uyu,
+      shift_label: [row.started_at, row.ended_at].filter(Boolean).map(value => value.slice(11, 16)).join(' a '),
+    })),
+  ]
+  const periodRows = jornadas.filter(row => inDateRange(row.record_date, range)).map(row => ({ row, values: {
+    date: row.record_date,
+    mobile: row.mobile_number || 'Sin indicar',
+    driver: row.driver_name || 'Sin identificar',
+    shift: row.shift_label || '—',
+    sales: row.sales_uyu == null ? '—' : money(Number(row.sales_uyu)),
+    commission: row.commission_uyu == null ? '—' : money(Number(row.commission_uyu)),
+    odometerStart: row.odometer_start_km == null ? '—' : number(Number(row.odometer_start_km)),
+    odometerEnd: row.odometer_end_km == null ? '—' : number(Number(row.odometer_end_km)),
+  } })).sort((a, b) => b.row.record_date.localeCompare(a.row.record_date))
+  const options = columnOptions(periodRows, SHIFT_FILTER_COLUMNS)
+  const visible = periodRows.filter(item => matchesColumnFilters(item, filters, SHIFT_FILTER_COLUMNS))
   const maxPage = Math.max(0, Math.ceil(visible.length / 40) - 1)
   const currentPage = Math.min(page, maxPage)
   const shown = visible.slice(currentPage * 40, currentPage * 40 + 40)
-  const mobiles = [...new Set(archiveShifts.map(row => row.mobile_number).filter(Boolean))].sort((a, b) => Number(a) - Number(b))
-  const localShifts = data.shifts.filter(shift => inDateRange(shift.startedAt?.slice(0, 10), range))
   return <>
     <Panel title="Jornadas" subtitle={`${visible.length} jornadas en el período seleccionado`}>
       {archiveError && <div className="form-error" role="alert">{archiveError}</div>}
       {!authSession ? <div className="report-empty">Ingresá desde Inicio para ver el historial.</div> : <>
-        <div className="archive-filters"><select aria-label="Móvil" value={mobile} onChange={event => { setMobile(event.target.value); setPage(0) }}><option value="todos">Todos los móviles</option>{mobiles.map(value => <option key={value} value={value}>Móvil {value}</option>)}</select><input aria-label="Buscar conductor" placeholder="Buscar conductor" value={query} onChange={event => { setQuery(event.target.value); setPage(0) }}/></div>
-        {visible.length === 0 ? <Empty icon={Clock3} title="Sin jornadas" text="No hay resultados con estos filtros."/> : <div className="table-scroller"><table className="data-table"><thead><tr><th>Fecha</th><th>Móvil</th><th>Conductor</th><th>Turno</th><th>Entradas</th><th>Comisión</th><th>Km inicial</th><th>Km final</th><th>Acciones</th></tr></thead><tbody>{shown.map(row => <tr key={row.id}><td>{row.record_date}</td><td>{row.mobile_number}</td><td><strong>{row.driver_name || 'Sin identificar'}</strong></td><td>{row.shift_label || '—'}</td><td className="amount">{row.sales_uyu == null ? '—' : money(Number(row.sales_uyu))}</td><td className="amount">{row.commission_uyu == null ? '—' : money(Number(row.commission_uyu))}</td><td>{row.odometer_start_km == null ? '—' : number(Number(row.odometer_start_km))}</td><td>{row.odometer_end_km == null ? '—' : number(Number(row.odometer_end_km))}</td><td><EditAction label={`jornada histórica del ${row.record_date}`} onClick={() => setSelected(row)}/></td></tr>)}</tbody></table></div>}
+        {periodRows.length === 0 ? <Empty icon={Clock3} title="Sin jornadas" text="No hay jornadas en este período."/> : <div className="table-scroller"><table className="data-table mobile-card-table filter-card-table shifts-table"><FilteredHeader columns={SHIFT_FILTER_COLUMNS} filters={filters} openFilter={openFilter} setOpenFilter={setOpenFilter} setFilters={setFilters} options={options} onChange={() => setPage(0)}/><tbody>{shown.map(({ row, values }) => {
+          const sources = row.source_kind === 'hoja'
+            ? row.archive_photo_path ? [{ label: 'Planilla histórica', path: row.archive_photo_path, rotationDegrees: photoRotation(row) }] : []
+            : [{ label: 'Planilla de jornada', path: row.sheet_photo_path }, { label: 'Detalle del taxímetro', path: row.meter_photo_path }].filter(source => source.path)
+          return <tr key={`${row.source_kind}-${row.id}`}><td data-label="Fecha">{values.date}</td><td data-label="Móvil">{values.mobile}</td><td data-label="Conductor"><strong>{row.driver_name || <MissingValue>Sin identificar</MissingValue>}</strong></td><td data-label="Turno">{values.shift}</td><td data-label="Entradas" className="amount">{values.sales}</td><td data-label="Comisión" className="amount">{values.commission}</td><td data-label="Km inicial">{values.odometerStart}</td><td data-label="Km final">{values.odometerEnd}</td><td data-label="Acciones" className="report-actions">{sources.length > 0 && <button type="button" className="edit-action" onClick={() => setPhotoSources(sources)} aria-label={`Ver fotos de la jornada del ${row.record_date}`} title="Ver fotos"><Eye size={21} strokeWidth={1.8}/></button>}<EditAction label={`jornada del ${row.record_date}`} onClick={() => row.source_kind === 'conductor' ? onPage('reports') : setSelected(row)}/></td></tr>
+        })}{visible.length === 0 && <tr><td colSpan={SHIFT_FILTER_COLUMNS.length + 1}>No hay jornadas con estos filtros.</td></tr>}</tbody></table></div>}
         <div className="archive-pagination"><em>{visible.length} jornadas, página {currentPage + 1} de {maxPage + 1}</em><button type="button" className="button secondary compact" disabled={currentPage === 0} onClick={() => setPage(value => value - 1)}>Anterior</button><button type="button" className="button secondary compact" disabled={currentPage >= maxPage} onClick={() => setPage(value => value + 1)}>Siguiente</button></div>
       </>}
     </Panel>
-    {localShifts.length > 0 && <Panel title="Turnos registrados en este navegador"><div className="table-scroller"><table className="data-table"><thead><tr><th>Conductor / móvil</th><th>Inicio</th><th>Estado</th><th>Efectivo esperado</th><th>Efectivo declarado</th><th>Diferencia</th><th>Acciones</th></tr></thead><tbody>{localShifts.map(s => { const r = reconciliation(data.tickets,s);return <tr key={s.id}><td><div className="cell-main"><strong><DriverLabel id={s.driverId}/></strong><small><VehicleLabel id={s.vehicleId}/></small></div></td><td>{new Date(s.startedAt).toLocaleString('es-UY',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td><td><Badge kind={s.status==='abierto'?'warning':'ok'}>{s.status==='abierto'?'En curso':'Cerrado'}</Badge></td><td className="amount">{money(r.expectedCash)}</td><td className="amount">{s.status==='abierto'?'—':money(r.declaredCash)}</td><td className="amount">{s.status==='abierto'?'—':money(r.difference)}</td><td><EditAction label="turno" onClick={() => edit('shifts', s)}/></td></tr> })}</tbody></table></div></Panel>}
     {selected && <ArchiveEdit key={selected.id} row={selected} onClose={() => setSelected(null)} onSave={onEditArchive}/>}
+    {photoSources && <PhotoViewer sources={photoSources} onClose={() => setPhotoSources(null)}/>}
   </>
+}
+
+function MonthlySummaryDialog({ title, months, emptyMessage, onClose }) {
+  useEffect(() => {
+    const closeOnEscape = event => { if (event.key === 'Escape') onClose() }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+  const monthLabel = month => new Date(`${month}-01T12:00:00`).toLocaleDateString('es-UY', { month: 'long', year: 'numeric' })
+  return <div className="modal-overlay" role="presentation" onMouseDown={onClose}><div className="modal driver-summary-modal" role="dialog" aria-modal="true" aria-label={`Resumen mensual de ${title}`} onMouseDown={event => event.stopPropagation()}>
+    <header className="modal-head"><h2>{title}</h2><button type="button" className="icon-only" onClick={onClose} aria-label="Cerrar" autoFocus><X size={20}/></button></header>
+    <h3>Resumen por mes</h3>
+    {months.length ? <div className="table-scroller"><table className="data-table"><thead><tr><th>Mes</th><th>Jornadas</th><th>Entradas</th><th>Km recorridos</th></tr></thead><tbody>{months.map(item => <tr key={item.month}>
+      <td data-label="Mes"><strong>{monthLabel(item.month)}</strong></td><td data-label="Jornadas">{number(item.jornadas)}</td><td data-label="Entradas">{item.entradasConDato ? money(item.entradas) : 'Sin registrar'}</td><td data-label="Km recorridos">{item.kmConDato ? `${number(item.km, 1)} km` : 'Sin registrar'}</td>
+    </tr>)}</tbody></table></div> : <div className="report-empty">{emptyMessage}</div>}
+  </div></div>
 }
 
 function DriversPage({ historical, roster }) {
   const { vehicles, drivers: catalogDrivers } = useContext(CatalogContext)
   const edit = useContext(EditContext)
+  const [filters, setFilters] = useState({})
+  const [openFilter, setOpenFilter] = useState(null)
+  const [selectedDriver, setSelectedDriver] = useState(null)
   const byDriver = historicalStats(historical)
-  return <section className="directory-page" aria-label="Tabla de conductores">
+  const rows = catalogDrivers.map(driver => {
+    const result = byDriver[driver.sourceName || driver.name] || { shifts: 0, sales: 0, commission: 0, km: 0 }
+    const mobiles = roster.mobilesForDriver(driver.name)
+    const stands = [...new Set(mobiles.map(mobile => vehicles.find(vehicle => vehicle.mobileNumber === mobile)?.stand).filter(stand => stand && stand !== 'Sin asignar'))]
+    return { driver, filterValues: { mobiles: mobiles.length ? mobiles : ['—'], stand: stands.length ? stands : ['Sin asignar'] }, values: {
+      driver: driver.name,
+      document: driver.document || '—',
+      phone: driver.phone || '—',
+      license: driver.license || '—',
+      mobiles: mobiles.join(', ') || '—',
+      stand: stands.join(', ') || 'Sin asignar',
+      status: driver.status || 'Sin confirmar',
+      shifts: number(result.shifts),
+      km: `${number(result.km, 1)} km`,
+      sales: money(result.sales),
+      commission: money(result.commission),
+    } }
+  })
+  const options = columnOptions(rows, DRIVER_FILTER_COLUMNS)
+  const visible = rows.filter(item => matchesColumnFilters(item, filters, DRIVER_FILTER_COLUMNS))
+  return <><section className="directory-page drivers-directory" aria-label="Tabla de conductores">
     <div className="directory-count">{catalogDrivers.length} conductores</div>
-    <div className="table-scroller"><table className="data-table"><thead><tr><th>Conductor</th><th>Documento</th><th>Teléfono</th><th>Licencia</th><th>Móviles</th><th>Parada</th><th>Estado</th><th>Jornadas</th><th>Kilómetros</th><th>Entradas</th><th>Comisión</th><th>Acciones</th></tr></thead><tbody>{catalogDrivers.map(driver => {const result = byDriver[driver.sourceName || driver.name] || {shifts:0,sales:0,commission:0,km:0};const mobiles = roster.mobilesForDriver(driver.name);const stands = [...new Set(mobiles.map(mobile => vehicles.find(vehicle => vehicle.mobileNumber === mobile)?.stand).filter(stand => stand && stand !== 'Sin asignar'))];return <tr key={driver.id}><td><strong>{driver.name}</strong></td><td>{driver.document || '—'}</td><td>{driver.phone || '—'}</td><td>{driver.license || '—'}</td><td>{mobiles.join(', ') || '—'}</td><td>{stands.join(', ') || 'Sin asignar'}</td><td><EntityBadge status={driver.status}/></td><td>{number(result.shifts)}</td><td>{number(result.km,1)} km</td><td className="amount">{money(result.sales)}</td><td className="amount">{money(result.commission)}</td><td><EditAction label={`conductor ${driver.name}`} onClick={() => edit('drivers', driver)}/></td></tr>})}</tbody></table></div>
+    <div className="table-scroller"><table className="data-table"><FilteredHeader columns={DRIVER_FILTER_COLUMNS} filters={filters} openFilter={openFilter} setOpenFilter={setOpenFilter} setFilters={setFilters} options={options}/><tbody>{visible.map(({ driver, values }) => <tr key={driver.id}><td data-label="Conductor"><button type="button" className="driver-name-link" onClick={() => setSelectedDriver(driver)} aria-label={`Ver resumen mensual de ${driver.name}`}>{values.driver}</button></td><td data-label="Documento">{values.document}</td><td data-label="Teléfono">{values.phone}</td><td data-label="Licencia">{values.license}</td><td data-label="Móviles">{values.mobiles}</td><td data-label="Parada">{values.stand}</td><td data-label="Estado"><EntityBadge status={driver.status}/></td><td data-label="Jornadas">{values.shifts}</td><td data-label="Kilómetros">{values.km}</td><td data-label="Entradas" className="amount">{values.sales}</td><td data-label="Comisión" className="amount">{values.commission}</td><td data-label="Acciones"><EditAction label={`conductor ${driver.name}`} onClick={() => edit('drivers', driver)}/></td></tr>)}{visible.length === 0 && <tr><td colSpan={DRIVER_FILTER_COLUMNS.length + 1}>No hay conductores con estos filtros.</td></tr>}</tbody></table></div>
   </section>
+  {selectedDriver && <MonthlySummaryDialog title={selectedDriver.name} months={driverMonthlySummary(historical, selectedDriver)} emptyMessage="No hay jornadas de este conductor en el período seleccionado." onClose={() => setSelectedDriver(null)}/>}
+  </>
 }
 
 function FleetPage({ tickets, historical, reports, roster, authSession }) {
   const { vehicles } = useContext(CatalogContext)
   const edit = useContext(EditContext)
+  const [selectedMobile, setSelectedMobile] = useState(null)
   const byVehicle = groupByKey(tickets,'vehicleId')
   const mobileStats = {}
   for (const row of historical) {
@@ -329,10 +444,12 @@ function FleetPage({ tickets, historical, reports, roster, authSession }) {
     if (report.odometer_start_km != null && report.odometer_end_km != null) item.km += Math.max(0, Number(report.odometer_end_km) - Number(report.odometer_start_km))
   }
   const fleetRows = [...vehicles, ...Object.keys(mobileStats).filter(mobile => !vehicles.some(vehicle => vehicle.mobileNumber === mobile)).map(mobileNumber => ({ id: `movil-${mobileNumber}`, mobileNumber, stand: 'Sin asignar', status: 'Sin confirmar' }))]
-  return <section className="directory-page" aria-label="Tabla de flota">
+  return <><section className="directory-page fleet-directory" aria-label="Tabla de flota">
     <div className="directory-count">{fleetRows.length} móviles</div>
-    <div className="table-scroller"><table className="data-table"><thead><tr><th>Móvil</th><th>Parada</th><th>Marca y modelo</th><th>Año</th><th>Estado</th><th>Conductores vinculados</th><th>Jornadas</th><th>Kilómetros</th><th>Entradas</th><th>Acciones</th></tr></thead><tbody>{fleetRows.map(vehicle => {const local = byVehicle[vehicle.id] || {trips:0,amount:0,km:0};const archived = mobileStats[vehicle.mobileNumber] || {shifts:0,amount:0,km:0};return <tr key={vehicle.id}><td><strong>{vehicle.mobileNumber || 'Sin número'}</strong></td><td>{vehicle.stand || 'Sin asignar'}</td><td>{[vehicle.brand,vehicle.model].filter(Boolean).join(' ') || '—'}</td><td>{vehicle.year || '—'}</td><td><EntityBadge status={vehicle.status}/></td><td>{roster.driversForMobile(vehicle.mobileNumber).join(', ') || '—'}</td><td>{number(authSession?.user ? archived.shifts : local.trips)}</td><td>{number(authSession?.user ? archived.km : local.km,1)} km</td><td className="amount">{money(authSession?.user ? archived.amount : local.amount)}</td><td><EditAction label={`móvil ${vehicle.mobileNumber || 'sin número'}`} onClick={() => edit('vehicles', vehicle)}/></td></tr>})}</tbody></table></div>
+    <div className="table-scroller"><table className="data-table mobile-card-table fleet-table"><thead><tr><th>Móvil</th><th>Matrícula</th><th>Parada</th><th>Marca y modelo</th><th>Año</th><th>Estado</th><th>Conductores vinculados</th><th>Jornadas</th><th>Kilómetros</th><th>Entradas</th><th>Acciones</th></tr></thead><tbody>{fleetRows.map(vehicle => {const local = byVehicle[vehicle.id] || {trips:0,amount:0,km:0};const archived = mobileStats[vehicle.mobileNumber] || {shifts:0,amount:0,km:0};return <tr key={vehicle.id}><td data-label="Móvil">{vehicle.mobileNumber ? <button type="button" className="driver-name-link" onClick={() => setSelectedMobile(vehicle.mobileNumber)} aria-label={`Ver resumen mensual del móvil ${vehicle.mobileNumber}`}>Móvil {vehicle.mobileNumber}</button> : <strong>Sin número</strong>}</td><td data-label="Matrícula">{vehicle.plate || '—'}</td><td data-label="Parada">{vehicle.stand || 'Sin asignar'}</td><td data-label="Marca y modelo">{[vehicle.brand,vehicle.model].filter(Boolean).join(' ') || '—'}</td><td data-label="Año">{vehicle.year || '—'}</td><td data-label="Estado"><EntityBadge status={vehicle.status}/></td><td data-label="Conductores vinculados">{roster.driversForMobile(vehicle.mobileNumber).join(', ') || '—'}</td><td data-label="Jornadas">{number(authSession?.user ? archived.shifts : local.trips)}</td><td data-label="Kilómetros">{number(authSession?.user ? archived.km : local.km,1)} km</td><td data-label="Entradas" className="amount">{money(authSession?.user ? archived.amount : local.amount)}</td><td data-label="Acciones"><EditAction label={`móvil ${vehicle.mobileNumber || 'sin número'}`} onClick={() => edit('vehicles', vehicle)}/></td></tr>})}</tbody></table></div>
   </section>
+  {selectedMobile && <MonthlySummaryDialog title={`Móvil ${selectedMobile}`} months={mobileMonthlySummary([...historical, ...reports], selectedMobile)} emptyMessage="No hay jornadas de este móvil en el período seleccionado." onClose={() => setSelectedMobile(null)}/>}
+  </>
 }
 
 function MovementsPage({ data, onAdd, range }) {
@@ -376,34 +493,55 @@ function SettingsPage({ pct, onUpdateSettings }) {
 
 export default function Admin({ data, reports = [], reportsError = '', archiveShifts = [], archiveError = '', authSession, onRefreshReports, onEditArchiveShift, onUpdateTicket, onAddMovement, onEditRecord, onAddCatalogRecord, onUpdateSettings }) {
   const [page,setPage] = useState('dashboard')
-  const [period,setPeriod] = useState('all')
-  const [month,setMonth] = useState(localDate().slice(0, 7))
+  const [selectedFromMonth, setSelectedFromMonth] = useState(null)
+  const [selectedToMonth, setSelectedToMonth] = useState(null)
   const [selectedTicket,setSelectedTicket] = useState(null)
+  const [selectedArchive,setSelectedArchive] = useState(null)
   const [editing,setEditing] = useState(null)
   const [creating,setCreating] = useState(null)
   const [navOpen,setNavOpen] = useState(false)
+  useEffect(() => {
+    if (!navOpen) return undefined
+    const previousOverflow = document.body.style.overflow
+    const closeOnEscape = event => { if (event.key === 'Escape') setNavOpen(false) }
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', closeOnEscape)
+    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener('keydown', closeOnEscape) }
+  }, [navOpen])
   const catalog = useMemo(() => ({ vehicles: currentVehicles(data), drivers: currentDrivers(data) }), [data.catalog])
-  const range = dateRange(period, month, [
+  const recordedMonths = recordedMonthBounds([
     ...data.tickets.map(ticket => ticket.date),
     ...data.movements.map(movement => movement.date),
     ...data.shifts.map(shift => shift.startedAt?.slice(0, 10)),
     ...reports.map(report => report.shift_date),
     ...archiveShifts.map(shift => shift.record_date),
   ])
+  const fromMonth = selectedFromMonth ?? recordedMonths.first
+  const toMonth = selectedToMonth ?? recordedMonths.last
+  const range = monthRange(fromMonth, toMonth)
+  function changeFromMonth(value) {
+    if (!value) return
+    setSelectedFromMonth(value)
+    if (value > toMonth) setSelectedToMonth(value)
+  }
+  function changeToMonth(value) {
+    if (!value) return
+    setSelectedToMonth(value)
+    if (value < fromMonth) setSelectedFromMonth(value)
+  }
   const tickets = data.tickets.filter(ticket => inDateRange(ticket.date, range))
   const historical = archiveShifts.filter(shift => inDateRange(shift.record_date, range))
   const visibleReports = reports.filter(report => inDateRange(report.shift_date, range))
   const roster = buildMobileRoster(archiveShifts, reports, catalog.drivers)
   const pageConfig = {
     dashboard: ['Centro de operaciones', 'Todo lo que pasa en la flota, en un solo lugar.'],
-    tickets: ['Viajes y tickets', 'Registro de viajes individuales.'],
-    reports: ['Planillas de jornada', 'Revisión de la planilla y el detalle del taxímetro.'],
+    reports: ['Planillas de jornada', 'Control de importes y fotografías de jornada.'],
     shifts: ['Control de turnos', 'Historial de jornadas registradas.'],
     drivers: ['Conductores', 'Nombres y cifras registrados en las hojas históricas.'],
     fleet: ['Flota de taxis', 'Seguimiento de vehículos y recaudación.'],
     movements: ['Movimientos', 'Gastos y movimientos de dinero.'],
-    payroll: ['Liquidaciones', 'Estimaciones por conductor según el período.'],
-    settings: ['Configuración', 'Porcentaje de liquidación.'],
+    calendar: ['Calendario de jornadas', 'Cobertura mensual por móvil.'],
+    performance: ['Rendimiento por móvil', 'Comparación mensual de actividad, entradas y kilómetros.'],
   }
   const [title, description] = pageConfig[page]
   const pageAction = page === 'drivers'
@@ -413,32 +551,32 @@ export default function Admin({ data, reports = [], reportsError = '', archiveSh
       : page === 'reports'
         ? { label: 'Subir jornada', href: '/conductor' }
         : null
-  const showPeriod = page !== 'settings'
+  const showPeriod = page !== 'calendar'
   function goPage(target) {setPage(target);setNavOpen(false);window.scrollTo({top:0,behavior:'smooth'})}
   return <CatalogContext.Provider value={catalog}><EditContext.Provider value={(type, item) => setEditing({ type, item })}><div className="admin-shell">
     <aside className={`sidebar ${navOpen?'sidebar-open':''}`}>
       <div className="sidebar-brand"><div className="brand-symbol"><CarFront size={23} strokeWidth={1.8}/></div><strong>Taxi Control</strong></div>
-      <nav className="sidebar-nav" aria-label="Navegación principal">{NAV.map(({id,label,Icon})=><button key={id} className={`nav-link ${page===id?'active':''}`} onClick={()=>goPage(id)}><Icon size={19} strokeWidth={1.8}/><em>{label}</em>{id==='tickets'&&data.tickets.filter(t=>t.status==='revision').length>0&&<em className="nav-dot"/>}</button>)}</nav>
+      <nav id="taxi-main-nav" className="sidebar-nav" aria-label="Navegación principal">{NAV.map(({id,label,Icon})=><button key={id} className={`nav-link ${page===id?'active':''}`} onClick={()=>goPage(id)}><Icon size={19} strokeWidth={1.8}/><em>{label}</em></button>)}</nav>
       <a className="sidebar-driver-view" href="/conductor" target="_blank" rel="noopener noreferrer" aria-label="Vista conductor, abre una nueva pestaña">Vista conductor<NewTabIcon/></a>
     </aside>
     {navOpen && <button className="sidebar-scrim" onClick={()=>setNavOpen(false)} aria-label="Cerrar menú"/>}
     <div className="admin-body">
-      <header className="mobile-header"><button className="mobile-menu" onClick={()=>setNavOpen(v=>!v)} aria-label="Abrir menú"><Menu size={23}/></button><strong>Taxi Control</strong></header>
+      <header className="mobile-header"><button className="mobile-menu" onClick={()=>setNavOpen(v=>!v)} aria-label={navOpen ? 'Cerrar menú' : 'Abrir menú'} aria-expanded={navOpen} aria-controls="taxi-main-nav"><Menu size={23}/></button><strong>Taxi Control</strong></header>
       <main className="admin-main">
-        <SectionTitle title={title} description={description} action={(showPeriod || pageAction) && <div className="title-actions">{showPeriod && <PeriodPicker period={period} month={month} onPeriod={setPeriod} onMonth={setMonth}/>} {pageAction && (pageAction.href ? <a className="button primary section-create" href={pageAction.href} target="_blank" rel="noopener noreferrer" aria-label={`${pageAction.label}, abre una nueva pestaña`}><NewTabIcon/> {pageAction.label}</a> : <button className="button primary section-create" onClick={pageAction.onClick}><Plus size={17}/> {pageAction.label}</button>)}</div>} />
-        {page === 'dashboard' && <Dashboard tickets={tickets} data={data} range={range} reports={reports} reportsError={reportsError} authSession={authSession} archiveShifts={archiveShifts} roster={roster} onPage={goPage} onInspect={setSelectedTicket}/>}
-        {page === 'tickets' && <TicketsPage tickets={tickets} onInspect={setSelectedTicket}/>}
-        {page === 'reports' && <ShiftReportsPage data={data} range={range} onChanged={onRefreshReports}/>}
-        {page === 'shifts' && <ShiftsPage data={data} archiveShifts={archiveShifts} archiveError={archiveError} authSession={authSession} onEditArchive={onEditArchiveShift} range={range}/>}
-        {page === 'drivers' && <DriversPage historical={historical} roster={roster}/>}
+        <SectionTitle title={title} description={description} action={(showPeriod || pageAction) && <div className="title-actions">{showPeriod && <PeriodPicker fromMonth={fromMonth} toMonth={toMonth} onFromMonth={changeFromMonth} onToMonth={changeToMonth}/>} {pageAction && (pageAction.href ? <a className="button primary section-create" href={pageAction.href} target="_blank" rel="noopener noreferrer" aria-label={`${pageAction.label}, abre una nueva pestaña`}><NewTabIcon/> {pageAction.label}</a> : <button className="button primary section-create" onClick={pageAction.onClick}><Plus size={17}/> {pageAction.label}</button>)}</div>} />
+        {page === 'dashboard' && <Dashboard range={range} reports={reports} reportsError={reportsError} authSession={authSession} archiveShifts={archiveShifts} onPage={goPage}/>}
+        {page === 'reports' && <ShiftReportsPage data={data} range={range} reports={reports} archiveShifts={archiveShifts} authSession={authSession} archiveError={archiveError} reportsError={reportsError} onChanged={onRefreshReports} onInspectArchive={setSelectedArchive}/>}
+        {page === 'shifts' && <ShiftsPage archiveShifts={archiveShifts} reports={reports} archiveError={archiveError} authSession={authSession} onEditArchive={onEditArchiveShift} onPage={goPage} range={range}/>}
+        {page === 'drivers' && <DriversPage historical={[...historical, ...visibleReports.map(report => ({ record_date: report.shift_date, driver_name: report.driver_name, sales_uyu: report.reported_sales_uyu, commission_uyu: report.reported_commission_uyu, odometer_start_km: report.odometer_start_km, odometer_end_km: report.odometer_end_km }))]} roster={roster}/>}
         {page === 'fleet' && <FleetPage tickets={tickets} historical={historical} reports={visibleReports} roster={roster} authSession={authSession}/>}
         {page === 'movements' && <MovementsPage data={data} onAdd={onAddMovement} range={range}/>}
-        {page === 'payroll' && <PayrollPage tickets={tickets} pct={data.settings.commissionPct} onSettings={()=>goPage('settings')} onTickets={()=>goPage('tickets')}/>}
-        {page === 'settings' && <SettingsPage pct={data.settings.commissionPct} onUpdateSettings={onUpdateSettings}/>}
+        {page === 'calendar' && <CalendarPage shifts={archiveShifts} reports={reports} vehicles={catalog.vehicles}/>}
+        {page === 'performance' && <PerformancePage shifts={archiveShifts} reports={reports} range={range} authSession={authSession} reportsError={reportsError} onPage={goPage}/>}
       </main>
     </div>
     {selectedTicket && <TicketDetail ticket={selectedTicket} onClose={()=>setSelectedTicket(null)} onUpdateTicket={onUpdateTicket}/>}
+    {selectedArchive && <ArchiveEdit key={selectedArchive.id} row={selectedArchive} onClose={()=>setSelectedArchive(null)} onSave={onEditArchiveShift}/>}
     {editing && <EditRecord key={`${editing.type}-${editing.item.id}`} type={editing.type} item={editing.item} data={data} onClose={()=>setEditing(null)} onSave={onEditRecord}/>}
-    {creating && <EditRecord key={`new-${creating}`} mode="create" type={creating} item={creating === 'drivers' ? { name:'', document:'', phone:'', license:'', assignedVehicleId:'', status:'Sin confirmar' } : { mobileNumber:'', stand:'Sin asignar', brand:'', model:'', year:'', status:'Sin confirmar' }} data={data} onClose={()=>setCreating(null)} onSave={(type, id, patch)=>onAddCatalogRecord(type, patch)}/>}
+    {creating && <EditRecord key={`new-${creating}`} mode="create" type={creating} item={creating === 'drivers' ? { name:'', document:'', phone:'', license:'', assignedVehicleId:'', status:'Sin confirmar' } : { mobileNumber:'', plate:'', stand:'Sin asignar', brand:'', model:'', year:'', status:'Sin confirmar' }} data={data} onClose={()=>setCreating(null)} onSave={(type, id, patch)=>onAddCatalogRecord(type, patch)}/>}
   </div></EditContext.Provider></CatalogContext.Provider>
 }

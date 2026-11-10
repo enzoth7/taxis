@@ -47,6 +47,16 @@ export function dateRange(period, month, dates = [], now = new Date()) {
   return { start: periodStart(Number(period) || 7, now), end: today }
 }
 
+export function recordedMonthBounds(dates = [], now = new Date()) {
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const recorded = dates.filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today).sort()
+  return { first: (recorded[0] || today).slice(0, 7), last: (recorded.at(-1) || today).slice(0, 7) }
+}
+
+export function monthRange(fromMonth, toMonth, now = new Date()) {
+  return { start: dateRange('month', fromMonth, [], now).start, end: dateRange('month', toMonth, [], now).end }
+}
+
 export function inDateRange(date, range) {
   return Boolean(date && date >= range.start && date <= range.end)
 }

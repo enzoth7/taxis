@@ -16,13 +16,8 @@ test('endpoints locales guardan datos y calculan ingresos', async () => {
 
   try {
     const catalog = await (await fetch(`${base}/api/catalog`)).json()
-    assert.equal(catalog.drivers.length, 22)
-    assert.equal(catalog.drivers[0].name, 'Anibal Peralta')
-    assert.equal(catalog.drivers[2].name, 'Bettiana')
-    assert.equal(catalog.drivers[14].name, 'Milton')
-    assert.equal(catalog.vehicles.length, 4)
-    assert.deepEqual(catalog.vehicles.map(vehicle => vehicle.mobileNumber), ['2', '4', '12', '13'])
-    assert.ok(catalog.vehicles.every(vehicle => vehicle.stand === 'Sin asignar' && !('plate' in vehicle)))
+    assert.equal(catalog.drivers.length, 0)
+    assert.equal(catalog.vehicles.length, 0)
 
     const state = {
       version: 2,
@@ -35,11 +30,12 @@ test('endpoints locales guardan datos y calculan ingresos', async () => {
       settings: { commissionPct: 30 },
       catalog: {
         vehicles: {
-          'movil-2': { stand: 'Parada Centro' },
+          'movil-2': { id: 'movil-2', mobileNumber: '2', plate: 'ABC 123', stand: 'Parada Centro' },
           'taxi-1': { plate: 'IAC 111', stand: 'Parada anterior' },
           'movil-nuevo': { id: 'movil-nuevo', mobileNumber: '6', stand: 'Parada Norte', brand: 'Fiat', model: 'Cronos', year: '2024', status: 'Activo' },
         },
         drivers: {
+          'real-anibal-peralta': { id: 'real-anibal-peralta', name: 'Anibal Peralta', status: 'Sin confirmar' },
           'chofer-nuevo': { id: 'chofer-nuevo', name: 'Andrea Prueba', document: '12345678', phone: '099123456', license: 'Profesional', assignedVehicleId: 'movil-nuevo', status: 'Activo' },
         },
       },
@@ -48,10 +44,11 @@ test('endpoints locales guardan datos y calculan ingresos', async () => {
     assert.equal(saved.status, 200)
     const updatedCatalog = await (await fetch(`${base}/api/catalog`)).json()
     assert.equal(updatedCatalog.vehicles[0].stand, 'Parada Centro')
-    assert.equal(updatedCatalog.vehicles.length, 5)
-    assert.equal(updatedCatalog.drivers.length, 23)
-    assert.equal(updatedCatalog.vehicles[4].mobileNumber, '6')
-    assert.equal(updatedCatalog.drivers[22].assignedVehicleId, 'movil-nuevo')
+    assert.equal(updatedCatalog.vehicles.length, 2)
+    assert.equal(updatedCatalog.drivers.length, 2)
+    assert.equal(updatedCatalog.vehicles[0].plate, 'ABC 123')
+    assert.equal(updatedCatalog.vehicles[1].mobileNumber, '6')
+    assert.equal(updatedCatalog.drivers.find(driver => driver.name === 'Andrea Prueba').assignedVehicleId, 'movil-nuevo')
     const tickets = await (await fetch(`${base}/api/tickets?driverId=real-anibal-peralta`)).json()
     assert.equal(tickets.length, 2)
     assert.equal(tickets.find(ticket => ticket.id === 'foto-1').amount, null)

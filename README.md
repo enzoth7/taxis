@@ -1,6 +1,6 @@
 # Taxi Control
 
-Aplicación de Vite y React para enviar fotos de jornadas y administrar viajes y movimientos de una flota. El directorio muestra 22 nombres identificables de las hojas históricas de Google Drive. La interfaz usa blanco, azul profundo y tablas con columnas.
+Aplicación de Vite y React para enviar cierres de jornada con fotos y consultar la actividad de una flota. El panel reúne jornadas históricas y cierres nuevos, con un diseño adaptable a escritorio y celular.
 
 ## Iniciar
 
@@ -31,12 +31,13 @@ npm run build
 
 ## Pantallas
 
-- Panel administrativo: Inicio, viajes y tickets, planillas de jornada, turnos, conductores, flota, movimientos, liquidaciones y configuración.
+- Panel administrativo: Inicio, Planillas, Turnos, Conductores, Flota de taxis, Movimientos, Calendario y Rendimiento.
 - Vista del conductor: nombre, número de móvil, inicio y fin del turno, odómetros inicial y final, venta total, comisión, jornal o POS, fiado, total a pagar y gastos. Envía la planilla de jornada, el detalle impreso del taxímetro o ambos. No muestra indicadores ni secciones administrativas.
 - En Inicio se ven las jornadas enviadas y sus indicadores al ingresar con el usuario de Supabase. La pestaña Planillas permite revisar los importes declarados, las dos fotos y los importes transcritos de cada fuente. Cuando hay dos totales se muestra su diferencia.
-- Las tablas incluyen acciones para editar tickets, turnos, movimientos, conductores y móviles. Los totales calculados llevan a sus registros o a la configuración del porcentaje.
-- Los 22 nombres del directorio vienen de las hojas históricas. Los móviles comprobados son 2, 4, 12 y 13. Un móvil puede figurar con varios conductores y un conductor con varios móviles, según sus jornadas. No hay matrículas verificadas. Estado actual, parada y datos personales quedan sin confirmar.
-- El filtro de período permite Hoy, últimos 7 o 30 días, elegir un mes con el calendario del navegador o Todo, desde el primer registro hasta hoy. Los formularios de carga siguen pidiendo una fecha y hora exactas.
+- Las tablas incluyen acciones para consultar fotos y editar jornadas, movimientos, conductores y móviles. En celular, los registros se presentan por campos sin perder las acciones.
+- Conductores y móviles se leen de tablas de Supabase. Mientras esas tablas no estén disponibles, el panel deriva el directorio de las jornadas históricas. La matrícula es opcional y queda vacía hasta que se cargue una real. Un móvil puede figurar con varios conductores y un conductor con varios móviles, según sus jornadas.
+- El calendario muestra jornadas registradas por móvil y mes. La base es de dos turnos por día según la planilla histórica; el mes en curso cuenta solo los días transcurridos.
+- El filtro de período permite elegir los meses Desde y Hasta. Inicialmente abarca desde el primer registro hasta el último mes con datos. Los formularios de carga siguen pidiendo una fecha y hora exactas.
 
 ## API local
 
@@ -63,18 +64,26 @@ La vista del conductor pide ingresar con un usuario de Supabase Auth. Guarda una
 
 La URL y la clave publicable están en `.env`, excluido del control de versiones. En Vercel, las variables de producción `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` ya están configuradas. No hay clave de servicio en la aplicación. El nombre ingresado atribuye el archivo, pero no verifica quién usa el dispositivo. El usuario de prueba comparte acceso a sus propias fotos entre el celular y la computadora cuando se inicia sesión en ambos. Cada dominio requiere iniciar sesión por separado.
 
-La aplicación envía las fotografías a Supabase Storage e inserta una fila en `/rest/v1/taxi_shift_reports`. El panel consulta la misma tabla para Inicio y Planillas. Actualmente el usuario de prueba es compartido: cualquiera con esas credenciales puede abrir el panel y revisar las fotos. Para uso real hacen falta cuentas individuales y permisos separados para conductores y administradores.
+La aplicación envía las fotografías a Supabase Storage e inserta una fila en `/rest/v1/taxi_shift_reports`. Las secciones del panel que calculan jornadas consultan `public.taxi_jornadas`, una vista única que reúne las hojas históricas y los cierres enviados por conductores. Planillas sigue escribiendo las correcciones en la tabla de origen. Actualmente el usuario de prueba es compartido: cualquiera con esas credenciales puede abrir el panel y revisar las fotos. Para uso real hacen falta cuentas individuales y permisos separados para conductores y administradores.
 
 ## Archivo histórico de Drive
 
-Se importaron las ocho hojas de móviles 2, 4, 12 y 13 de 2024 y 2025, junto con el control general de tirillas, desde la [carpeta compartida](https://drive.google.com/drive/folders/1VggPwMTQWcR_q3Xa_UoMRLe8K1kCEBMy). Hay 876 jornadas, 49 totales mensuales, 731 días de control y 26 filas del resumen general en `public.taxi_archive_rows`. Los registros conservan archivo, pestaña, número de fila, valores originales y valores mostrados en la hoja. La importación usa una clave única por archivo, pestaña y fila para evitar duplicados al repetirla.
+Se importaron hojas de móviles y controles de tirillas desde la [carpeta compartida](https://drive.google.com/drive/folders/1VggPwMTQWcR_q3Xa_UoMRLe8K1kCEBMy). Las jornadas importadas conservan archivo, pestaña, número de fila y valores originales. La importación usa una clave única por archivo, pestaña y fila para evitar duplicados al repetirla.
 
-La pantalla Turnos permite consultar las jornadas por mes o período completo, móvil y conductor, y corregir los campos interpretados sin modificar la fila original. Conductores y Flota muestran las vinculaciones y cifras según las jornadas registradas. De las 876 jornadas, 155 tienen el conductor como `?` y siguen sin asignar. Solo se unificaron tres variantes de escritura evidentes: `Milyon` con `Milton`, `Federcio Mas` con `Federico Mas` y `J Rodriguez` con `J. Rodriguez`. Los nombres parciales se conservaron como figuran en el origen.
+La pantalla Turnos permite filtrar jornadas por mes, móvil y conductor, y corregir los campos interpretados sin modificar la fila original. Conductores y Flota muestran las vinculaciones y cifras según las jornadas registradas. Los nombres parciales o ilegibles permanecen sin asignar hasta que se puedan verificar.
 
-Estas hojas no contienen las fotos históricas ni datos de 2023. Las fotos futuras requieren la carpeta correspondiente. El archivo histórico es independiente de las planillas con fotos enviadas por los conductores.
+Las hojas históricas y las planillas fotográficas se consultan juntas mediante `public.taxi_jornadas`. Los cierres enviados desde el celular conservan sus fotos y campos en la tabla de origen.
+
+## Tirillas fotográficas de 2023
+
+La carpeta local `Tirillas` contenía 290 JPG. Se eliminaron 136 copias idénticas verificadas por SHA-256 y se conservaron 154 originales. Las 154 copias WebP están en `Tirillas_webp_2023` y en el bucket privado `taxi-tickets`, bajo la ruta del usuario `archive/2023`. La tabla `public.taxi_tirilla_archive_images` guarda una fila por foto, sus huellas, campos transcritos y alertas de revisión. La carga es repetible por huella y las fotos y los manifiestos locales están excluidos de Git.
+
+Todas las fotos de este lote son planillas. Se pudieron leer 146 fechas, 153 números de móvil y 151 ventas. Ocho fechas quedaron vacías; no se asignaron nombres ni cifras por inferencia. Las 154 lecturas conservan el estado `revisar` y sus alertas. Las 146 planillas con fecha y móvil legibles también están en `taxi_archive_rows`, con la referencia a la foto y el estado de revisión en `raw_values`, para que aparezcan al elegir Todo o un mes de 2023 en Inicio y Turnos. La revisión está en `tirillas-2023-revision.json`. La función temporal usada para cargar las fotos quedó desactivada después de verificar los 154 objetos y los 154 registros.
+
+La vista `public.taxi_jornadas` presenta fecha, móvil, conductor, importes, kilómetros, fotos, origen y estado con un solo esquema de consulta. Cada jornada de 2023 aparece una sola vez, vinculada a su WebP. Las ocho fotos sin fecha figuran en la misma vista como `foto_pendiente`; no se suman a los indicadores hasta que se pueda identificar su jornada. Los cierres nuevos enviados desde el celular aparecerán automáticamente en la misma vista.
 
 ## Alcance actual
 
 La API local escucha solo en `127.0.0.1`. Cualquier proceso local con acceso al puerto puede consultar y reemplazar su estado, por lo que no se debe publicar como servidor accesible desde una red. El panel sigue teniendo secciones que guardan datos localmente; solo las planillas y sus fotos se sincronizan mediante Supabase.
 
-Las liquidaciones siguen siendo estimaciones calculadas con el porcentaje configurado sobre los tickets individuales registrados. Inicio, Conductores, Flota y Turnos consultan las jornadas históricas; Planillas consulta los cierres con fotos enviados desde el celular. El OCR con OpenAI y el MCP para ChatGPT tienen rutas reservadas, pero no están configurados ni ejecutan llamadas externas. Una tarea programada de ChatGPT Plus no tiene acceso automático a las imágenes privadas de este proyecto. Para transcribir una jornada por ahora hay que adjuntar las fotos en el chat, verificar los campos dudosos y registrar el resultado en Planillas. Las claves de servicios futuros deben quedar en un backend privado, nunca en variables `VITE_` ni en el navegador. Ver [contratos de integración](server/CONTRATOS.md).
+Inicio, Planillas, Conductores, Flota, Turnos, Calendario y Rendimiento consultan las jornadas unificadas. Movimientos y algunas funciones de edición conservan datos locales. El OCR con OpenAI y el MCP para ChatGPT tienen rutas reservadas, pero no están configurados ni ejecutan llamadas externas. Una tarea programada de ChatGPT Plus no tiene acceso automático a las imágenes privadas de este proyecto. Las claves de servicios futuros deben quedar en un backend privado, nunca en variables `VITE_` ni en el navegador. Ver [contratos de integración](server/CONTRATOS.md).

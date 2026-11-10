@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
-import { VEHICLES, currentDrivers, currentVehicles } from './data/catalog.js'
+import { currentDrivers, currentVehicles } from './data/catalog.js'
 import { mobileLabel } from './lib/mobileRoster.js'
 import { getPhoto } from './lib/photos.js'
 
@@ -31,17 +31,17 @@ export default function EditRecord({ type, item, data, onClose, onSave, mode = '
   const vehicleOptions = vehicles.filter(vehicle => vehicle.mobileNumber).map(vehicle => ({ value: vehicle.id, label: mobileLabel(vehicle) }))
   const driverOptions = drivers.map(driver => ({ value: driver.id, label: driver.name }))
   let fields = []
-  if (type === 'vehicles') fields = [<label key="mobileNumber">Móvil<input value={form.mobileNumber ?? ''} inputMode="numeric" pattern="[0-9]+" required readOnly={VEHICLES.some(vehicle => vehicle.id === item.id)} onChange={event => setForm({ ...form, mobileNumber: event.target.value })}/></label>, field('stand', 'Parada'), field('brand', 'Marca', 'text', null, false), field('model', 'Modelo', 'text', null, false), field('year', 'Año', 'number', null, false), field('status', 'Estado', 'text', [{ value: 'Sin confirmar', label: 'Sin confirmar' }, { value: 'Activo', label: 'Activo' }, { value: 'Mantenimiento', label: 'Mantenimiento' }, { value: 'Inactivo', label: 'Inactivo' }])]
+  if (type === 'vehicles') fields = [<label key="mobileNumber">Móvil<input value={form.mobileNumber ?? ''} inputMode="numeric" pattern="[0-9]+" required readOnly={!creating} onChange={event => setForm({ ...form, mobileNumber: event.target.value })}/></label>, field('plate', 'Matrícula', 'text', null, false), field('stand', 'Parada'), field('brand', 'Marca', 'text', null, false), field('model', 'Modelo', 'text', null, false), field('year', 'Año', 'number', null, false), field('status', 'Estado', 'text', [{ value: 'Sin confirmar', label: 'Sin confirmar' }, { value: 'Activo', label: 'Activo' }, { value: 'Mantenimiento', label: 'Mantenimiento' }, { value: 'Inactivo', label: 'Inactivo' }])]
   if (type === 'drivers') fields = [field('name', 'Nombre'), field('document', 'Documento', 'text', null, false), field('phone', 'Teléfono', 'text', null, false), field('license', 'Licencia', 'text', null, false), field('assignedVehicleId', 'Móvil habitual', 'text', [{ value: '', label: 'Sin asignar' }, ...vehicleOptions]), field('status', 'Estado', 'text', [{ value: 'Sin confirmar', label: 'Sin confirmar' }, { value: 'Activo', label: 'Activo' }, { value: 'Inactivo', label: 'Inactivo' }])]
   if (type === 'tickets') fields = [field('ticketNumber', 'Número de ticket'), field('driverId', 'Conductor', 'text', driverOptions), field('vehicleId', 'Móvil', 'text', vehicleOptions), field('date', 'Fecha', 'date'), field('time', 'Hora', 'time'), field('odometerStartKm', 'Odómetro inicial (km)', 'number', null, false), field('amount', 'Importe', 'number', null, false), field('distanceKm', 'Kilómetros', 'number', null, false), field('payment', 'Pago', 'text', [{value:'',label:'Sin confirmar'}, ...['efectivo','tarjeta','transferencia'].map(value => ({value,label:value}))]), field('status', 'Estado', 'text', [{value:'revision',label:'Por revisar'},{value:'validado',label:'Validado'}]), field('note', 'Observaciones', 'text', null, false)]
   if (type === 'shifts') fields = [field('driverId', 'Conductor', 'text', driverOptions), field('vehicleId', 'Móvil', 'text', vehicleOptions), field('kmStart', 'Odómetro inicial', 'number'), ...(item.status === 'cerrado' ? [field('kmEnd', 'Odómetro final', 'number'), field('cashDeclared', 'Efectivo declarado', 'number')] : [])]
   if (type === 'movements') fields = [field('date', 'Fecha', 'date'), field('description', 'Detalle'), field('category', 'Categoría'), field('kind', 'Tipo', 'text', [{value:'ingreso',label:'Ingreso'},{value:'egreso',label:'Egreso'}]), field('vehicleId', 'Móvil', 'text', vehicleOptions), field('amount', 'Importe', 'number')]
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault()
     setError('')
     const patch = { ...form }
     if (type === 'drivers' || type === 'vehicles') {
-      for (const key of ['name', 'mobileNumber', 'stand', 'brand', 'model', 'document', 'phone', 'license']) if (typeof patch[key] === 'string') patch[key] = patch[key].trim()
+      for (const key of ['name', 'mobileNumber', 'plate', 'stand', 'brand', 'model', 'document', 'phone', 'license']) if (typeof patch[key] === 'string') patch[key] = patch[key].trim()
     }
     for (const key of ['amount','distanceKm','odometerStartKm','kmStart','kmEnd','cashDeclared']) if (key in patch) patch[key] = patch[key] == null || patch[key] === '' ? null : Number(patch[key])
     if (type === 'shifts' && patch.kmEnd !== undefined && patch.kmEnd < patch.kmStart) return setError('El odómetro final debe ser igual o mayor al inicial.')
@@ -49,8 +49,8 @@ export default function EditRecord({ type, item, data, onClose, onSave, mode = '
     if (type === 'vehicles' && (!/^\d+$/.test(patch.mobileNumber) || vehicles.some(vehicle => vehicle.id !== item.id && vehicle.mobileNumber === patch.mobileNumber))) return setError('Ingresá un número de móvil que no esté registrado.')
     if (type === 'tickets' && data.tickets.some(ticket => ticket.id !== item.id && ticket.ticketNumber && ticket.ticketNumber === patch.ticketNumber && ticket.vehicleId === patch.vehicleId && ticket.date === patch.date)) return setError('Ya existe un ticket con ese número, fecha y móvil.')
     if (type === 'tickets' && patch.status === 'validado' && (patch.amount == null || patch.amount <= 0 || patch.distanceKm == null || patch.distanceKm < 0 || !patch.payment)) return setError('Completá importe, kilómetros y medio de pago antes de validar.')
-    onSave(type, item.id, patch)
-    onClose()
+    try { await onSave(type, item.id, patch); onClose() }
+    catch (cause) { setError(cause.message || 'No se pudieron guardar los cambios.') }
   }
   return <div className="modal-overlay" role="presentation" onMouseDown={onClose}><form className="modal edit-record-modal" role="dialog" aria-modal="true" aria-label={`${creating ? 'Nuevo' : 'Editar'} ${label}`} onMouseDown={event=>event.stopPropagation()} onSubmit={submit}>
     <div className="modal-head"><h2>{creating ? 'Nuevo' : 'Editar'} {label}</h2><button type="button" className="icon-only" onClick={onClose} aria-label="Cerrar"><X size={20}/></button></div>

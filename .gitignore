@@ -7,3 +7,16 @@ supabase/.temp/
 .DS_Store
 *.log
 server/data/
+/Tirillas/
+/Tirillas_webp_2023/
+/Tirillas_duplicados_2023/
+/tirillas-2023-*.json*
+/Tirillas2/
+/Tirillas2_webp/
+/Tirillas2_review/
+/tirillas2-*.json*
+/Tirillas3/
+/Tirillas3_webp/
+/Tirillas3_review/
+/tirillas3-*.json*
+/tirillas2-ocr-summary.txt

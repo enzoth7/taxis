@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DRIVERS, currentDrivers, currentVehicles, seedState } from '../src/data/catalog.js'
+import { currentDrivers, currentVehicles, seedState } from '../src/data/catalog.js'
 import { driverIncome } from '../src/lib/income.js'
 
 const defaultStoragePath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'state.json')
@@ -125,7 +125,7 @@ export function createApiHandler({ storagePath = defaultStoragePath } = {}) {
       const incomeMatch = route.match(/^\/api\/drivers\/([^/]+)\/income$/)
       if (method === 'GET' && incomeMatch) {
         const driverId = decodeURIComponent(incomeMatch[1])
-        if (!DRIVERS.some(driver => driver.id === driverId)) return sendJson(response, 404, { error: 'Conductor no encontrado.' })
+        if (!currentDrivers(state).some(driver => driver.id === driverId)) return sendJson(response, 404, { error: 'Conductor no encontrado.' })
         const days = Number(url.searchParams.get('days') || 7)
         if (![1, 7, 30].includes(days)) return sendJson(response, 400, { error: 'El período debe ser 1, 7 o 30 días.' })
         return sendJson(response, 200, driverIncome(state, driverId, days))

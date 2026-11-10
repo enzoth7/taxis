@@ -4,10 +4,12 @@ import Driver from './Driver.jsx'
 import { STORAGE_KEY, loadState, saveState, loadServerState, syncServerState } from './lib/persistence.js'
 import { savePhoto } from './lib/photos.js'
 import { uploadTicketPhoto } from './lib/remoteTickets.js'
-import { uploadShiftReport, listShiftReports } from './lib/shiftReports.js'
+import { uploadShiftReport } from './lib/shiftReports.js'
 import { supabase } from './lib/supabase.js'
-import { listArchiveShifts, updateArchiveShift } from './lib/archive.js'
+import { updateArchiveShift } from './lib/archive.js'
+import { listJornadas, splitJornadas } from './lib/jornadas.js'
 import { isDuplicateTicket, safeId } from './lib/core.js'
+import { catalogFromArchive, listFleetCatalog, saveFleetRecord } from './lib/fleetCatalog.js'
 
 export default function App() {
   const [data, setData] = useState(loadState)
@@ -19,14 +21,24 @@ export default function App() {
   const [reportsError, setReportsError] = useState('')
   const [archiveShifts, setArchiveShifts] = useState([])
   const [archiveError, setArchiveError] = useState('')
+  const [remoteCatalog, setRemoteCatalog] = useState(null)
 
-  async function refreshReports() {
-    try { setRemoteReports(await listShiftReports()); setReportsError('') }
-    catch (error) { setReportsError(error.message || 'No se pudieron cargar las jornadas.') }
+  async function refreshJornadas() {
+    try {
+      const result = splitJornadas(await listJornadas())
+      setRemoteReports(result.reports)
+      setArchiveShifts(result.archiveShifts)
+      setReportsError('')
+      setArchiveError('')
+    } catch (error) {
+      const message = error.message || 'No se pudieron cargar las jornadas.'
+      setReportsError(message)
+      setArchiveError(message)
+    }
   }
-  async function refreshArchive() {
-    try { setArchiveShifts(await listArchiveShifts()); setArchiveError('') }
-    catch (error) { setArchiveError(error.message || 'No se pudo cargar el historial.') }
+  async function refreshFleetCatalog() {
+    try { setRemoteCatalog(await listFleetCatalog()) }
+    catch { setRemoteCatalog(null) }
   }
 
   useEffect(() => {
@@ -36,12 +48,12 @@ export default function App() {
     return () => listener.subscription.unsubscribe()
   }, [])
   useEffect(() => {
-    if (authSession?.user) { refreshReports(); refreshArchive() }
-    else { setRemoteReports([]); setArchiveShifts([]) }
+    if (authSession?.user) { refreshJornadas(); refreshFleetCatalog() }
+    else { setRemoteReports([]); setArchiveShifts([]); setRemoteCatalog(null) }
   }, [authSession?.user?.id])
   useEffect(() => {
     if (!authSession?.user) return undefined
-    const refreshOnFocus = () => { refreshReports(); refreshArchive() }
+    const refreshOnFocus = () => { refreshJornadas(); refreshFleetCatalog() }
     window.addEventListener('focus', refreshOnFocus)
     return () => window.removeEventListener('focus', refreshOnFocus)
   }, [authSession?.user?.id])
@@ -96,7 +108,7 @@ export default function App() {
 
   async function addShiftReport(values, photos) {
     const report = await uploadShiftReport(values, photos)
-    await refreshReports()
+    await refreshJornadas()
     toast('Jornada recibida para revisión.')
     return report
   }
@@ -107,8 +119,8 @@ export default function App() {
   }
 
   async function editArchiveShift(id, patch) {
-    const updated = await updateArchiveShift(id, patch)
-    setArchiveShifts(previous => previous.map(shift => shift.id === id ? updated : shift))
+    await updateArchiveShift(id, patch)
+    await refreshJornadas()
     toast('Jornada histórica actualizada.')
   }
 
@@ -122,25 +134,36 @@ export default function App() {
     toast('Configuración actualizada.')
   }
 
-  function editRecord(type, id, patch) {
+  async function editRecord(type, id, patch) {
     if (type === 'drivers' || type === 'vehicles') {
-      setData(previous => ({ ...previous, catalog: { ...previous.catalog, [type]: { ...previous.catalog?.[type], [id]: { ...previous.catalog?.[type]?.[id], ...patch } } } }))
+      if (remoteCatalog) {
+        await saveFleetRecord(type, id, patch, authSession?.user?.id)
+        await refreshFleetCatalog()
+      } else setData(previous => ({ ...previous, catalog: { ...previous.catalog, [type]: { ...previous.catalog?.[type], [id]: { ...previous.catalog?.[type]?.[id], ...patch } } } }))
     } else {
       setData(previous => ({ ...previous, [type]: previous[type].map(item => item.id === id ? { ...item, ...patch } : item) }))
     }
     toast('Cambios guardados.')
   }
 
-  function addCatalogRecord(type, patch) {
-    const id = `${type === 'drivers' ? 'chofer' : 'taxi'}-${safeId()}`
-    setData(previous => ({ ...previous, catalog: { ...previous.catalog, [type]: { ...previous.catalog?.[type], [id]: { ...patch, id } } } }))
+  async function addCatalogRecord(type, patch) {
+    const id = type === 'vehicles' ? `movil-${patch.mobileNumber}` : `chofer-${safeId()}`
+    if (remoteCatalog) {
+      await saveFleetRecord(type, id, patch, authSession?.user?.id)
+      await refreshFleetCatalog()
+    } else setData(previous => ({ ...previous, catalog: { ...previous.catalog, [type]: { ...previous.catalog?.[type], [id]: { ...patch, id } } } }))
     toast(type === 'drivers' ? 'Conductor agregado.' : 'Taxi agregado.')
   }
 
+  const archiveCatalog = catalogFromArchive(archiveShifts)
+  const visibleData = { ...data, catalog: remoteCatalog || {
+    vehicles: { ...archiveCatalog.vehicles, ...data.catalog?.vehicles },
+    drivers: { ...archiveCatalog.drivers, ...data.catalog?.drivers },
+  } }
   return <>
     {isDriverPage
-      ? <Driver data={data} onAddShiftReport={addShiftReport} />
-      : <Admin data={data} reports={remoteReports} reportsError={reportsError} archiveShifts={archiveShifts} archiveError={archiveError} authSession={authSession} onRefreshReports={refreshReports} onEditArchiveShift={editArchiveShift} onUpdateTicket={updateTicket} onAddMovement={addMovement} onEditRecord={editRecord} onAddCatalogRecord={addCatalogRecord} onUpdateSettings={updateSettings} onToast={toast} />}
+      ? <Driver data={visibleData} onAddShiftReport={addShiftReport} />
+      : <Admin data={visibleData} reports={remoteReports} reportsError={reportsError} archiveShifts={archiveShifts} archiveError={archiveError} authSession={authSession} onRefreshReports={refreshJornadas} onEditArchiveShift={editArchiveShift} onUpdateTicket={updateTicket} onAddMovement={addMovement} onEditRecord={editRecord} onAddCatalogRecord={addCatalogRecord} onUpdateSettings={updateSettings} onToast={toast} />}
     {notice && <div className="toast" role="status" aria-live="polite">{notice}</div>}
   </>
 }

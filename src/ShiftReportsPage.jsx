@@ -1,16 +1,45 @@
 import { useEffect, useState } from 'react'
-import { Check, X } from 'lucide-react'
+import { Check, Eye, X } from 'lucide-react'
 import EditIcon from './EditIcon.jsx'
 import { currentDrivers, currentVehicles } from './data/catalog.js'
-import { inDateRange, money } from './lib/core.js'
+import { inDateRange, money, number } from './lib/core.js'
 import { mobileNumberForId } from './lib/mobileRoster.js'
 import { supabase } from './lib/supabase.js'
-import { downloadShiftPhoto, listShiftReports, updateShiftReport } from './lib/shiftReports.js'
+import { downloadShiftPhoto, updateShiftReport } from './lib/shiftReports.js'
+import { orientedPhotoBlob, photoRotation } from './lib/photoOrientation.js'
+import ColumnFilter from './ColumnFilter.jsx'
+
+const FILTER_COLUMNS = [
+  { key: 'date', label: 'Fecha' },
+  { key: 'driver', label: 'Conductor' },
+  { key: 'mobile', label: 'Móvil' },
+  { key: 'declared', label: 'Venta declarada' },
+  { key: 'photo', label: 'Foto' },
+  { key: 'amount', label: 'Importe' },
+  { key: 'km', label: 'Km recorridos' },
+  { key: 'status', label: 'Estado' },
+]
 
 function amount(value) { return value == null ? 'Sin registrar' : money(Number(value)) }
 function difference(report) {
   if (report.sheet_total_uyu == null || report.meter_total_uyu == null || report.sheet_total_uyu === '' || report.meter_total_uyu === '') return null
   return Number(report.sheet_total_uyu) - Number(report.meter_total_uyu)
+}
+function kilometersTraveled(row) {
+  if (row.odometer_start_km == null || row.odometer_end_km == null || row.odometer_start_km === '' || row.odometer_end_km === '') return 'Sin registrar'
+  const start = Number(row.odometer_start_km)
+  const end = Number(row.odometer_end_km)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 'A revisar'
+  return `${number(end - start, 1)} km`
+}
+export function photoStatus(row, sources) {
+  if (!sources.length) return { label: 'Sin imagen', kind: 'orange' }
+  const review = row.source_kind === 'hoja' ? row.raw_values?.review_status : row.status
+  const photoType = row.raw_values?.photo_type || row.foto_datos_extraidos?.photo_type
+  const unreadablePhoto = row.foto_alertas?.some?.(flag => ['imagen_ilegible', 'foto_ilegible'].includes(flag))
+  if (review === 'ilegible' || photoType === 'ilegible' || unreadablePhoto) return { label: 'Imagen ilegible', kind: 'danger' }
+  if (['validado', 'lista', 'revisado'].includes(review)) return { label: 'Revisado', kind: 'ok' }
+  return { label: 'A revisar', kind: 'warning' }
 }
 function fieldValue(value) { return value ?? '' }
 function localDateTime(value) {
@@ -99,7 +128,7 @@ function ReviewForm({ report, data, onClose, onSaved }) {
     <div className="shift-review-identification"><strong>{form.driver_name}</strong><em>Móvil {form.mobile_number || 'sin número'}</em><em>{report.shift_date}</em></div>
     <div className="shift-review-photos">
       {report.sheet_photo_path && <div><strong>Planilla de jornada</strong>{photos.sheet ? <a href={photos.sheet} target="_blank" rel="noopener noreferrer" aria-label="Abrir planilla completa"><img src={photos.sheet} alt="Planilla de jornada"/></a> : <em>Cargando foto...</em>}</div>}
-      {report.meter_photo_path && <div><strong>Detalle del taxímetro</strong>{photos.meter ? <a href={photos.meter} target="_blank" rel="noopener noreferrer" aria-label="Abrir detalle completo"><img src={photos.meter} alt="Detalle del taxímetro"/></a> : <em>Cargando foto...</em>}</div>}
+      {report.meter_photo_path && <div><strong>Comprobante de viajes</strong>{photos.meter ? <a href={photos.meter} target="_blank" rel="noopener noreferrer" aria-label="Abrir comprobante completo"><img src={photos.meter} alt="Comprobante de viajes"/></a> : <em>Cargando foto...</em>}</div>}
     </div>
     <div className="shift-review-fields">
       {input('driver_name', 'Conductor')}
@@ -118,44 +147,54 @@ function ReviewForm({ report, data, onClose, onSaved }) {
       {input('reported_expenses_uyu', 'Gastos (UYU)', 'number')}
       {input('reported_expenses_note', 'Detalle de gastos')}
       {input('sheet_trip_count', 'Viajes en planilla', 'number')}
-      {input('meter_trip_count', 'Viajes en taxímetro', 'number')}
+      {input('meter_trip_count', 'Viajes del comprobante', 'number')}
       {input('sheet_total_uyu', 'Total en planilla (UYU)', 'number')}
-      {input('meter_total_uyu', 'Total en taxímetro (UYU)', 'number')}
+      {input('meter_total_uyu', 'Total del comprobante (UYU)', 'number')}
       <label>Estado<select value={form.status} onChange={event => setForm(previous => ({ ...previous, status: event.target.value }))}><option value="revision">A revisar</option><option value="validado">Validado</option></select></label>
       <label className="field-wide">Viajes anotados en planilla<textarea rows="3" value={form.sheet_trip_lines} onChange={event => setForm(previous => ({ ...previous, sheet_trip_lines: event.target.value }))}/></label>
-      <label className="field-wide">Viajes impresos por taxímetro<textarea rows="3" value={form.meter_trip_lines} onChange={event => setForm(previous => ({ ...previous, meter_trip_lines: event.target.value }))}/></label>
+      <label className="field-wide">Viajes del comprobante<textarea rows="3" value={form.meter_trip_lines} onChange={event => setForm(previous => ({ ...previous, meter_trip_lines: event.target.value }))}/></label>
       <label className="field-wide">Observaciones de revisión<textarea rows="2" value={form.review_notes} onChange={event => setForm(previous => ({ ...previous, review_notes: event.target.value }))}/></label>
     </div>
-    {previewDifference != null && <div className="shift-review-difference">Diferencia entre planilla y taxímetro: <strong>{money(previewDifference)}</strong></div>}
+    {previewDifference != null && <div className="shift-review-difference">Diferencia entre planilla y comprobante: <strong>{money(previewDifference)}</strong></div>}
     {error && <div className="form-error" role="alert">{error}</div>}
     <div className="modal-actions"><button type="button" className="button secondary" onClick={onClose}>Cancelar</button><button type="submit" className="button primary" disabled={saving}><Check size={17}/>{saving ? 'Guardando...' : 'Guardar revisión'}</button></div>
   </form></div>
 }
 
-export default function ShiftReportsPage({ data, range, onChanged }) {
-  const [session, setSession] = useState(undefined)
-  const [reports, setReports] = useState([])
-  const [selected, setSelected] = useState(null)
+export function PhotoViewer({ sources, onClose }) {
+  const [photos, setPhotos] = useState([])
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    let active = true
+    const urls = []
+    Promise.all(sources.map(async source => {
+      const blob = await downloadShiftPhoto(source.path)
+      const display = await orientedPhotoBlob(blob, source.rotationDegrees || 0)
+      const url = URL.createObjectURL(display)
+      if (!active) { URL.revokeObjectURL(url); return null }
+      urls.push(url)
+      return { ...source, url }
+    })).then(items => { if (active) setPhotos(items.filter(Boolean)) })
+      .catch(() => { if (active) setError('No se pudieron abrir las fotos de esta jornada.') })
+    return () => { active = false; urls.forEach(url => URL.revokeObjectURL(url)) }
+  }, [sources])
+  return <div className="modal-overlay" role="presentation" onMouseDown={onClose}><div className="modal shift-photo-modal" role="dialog" aria-modal="true" aria-label="Fotos de la jornada" onMouseDown={event => event.stopPropagation()}>
+    <header className="modal-head"><h2>Fotos de la jornada</h2><button type="button" className="icon-only" onClick={onClose} aria-label="Cerrar"><X size={20}/></button></header>
+    {error && <div className="form-error" role="alert">{error}</div>}
+    {!error && !photos.length && <div className="body-copy">Cargando fotos...</div>}
+    <div className={`shift-review-photos ${photos.length === 1 ? 'single-photo' : ''}`}>{photos.map(photo => <div key={photo.path}><strong>{photo.label}</strong><a href={photo.url} target="_blank" rel="noopener noreferrer" aria-label={`Abrir ${photo.label} completa`}><img src={photo.url} alt={photo.label}/></a></div>)}</div>
+  </div></div>
+}
+
+export default function ShiftReportsPage({ data, range, reports = [], archiveShifts = [], authSession, archiveError = '', reportsError = '', onChanged, onInspectArchive }) {
+  const [selected, setSelected] = useState(null)
+  const [photoSources, setPhotoSources] = useState(null)
+  const [error, setError] = useState('')
   const [email, setEmail] = useState('prueba.taxis@example.com')
   const [password, setPassword] = useState('')
-  const [refreshing, setRefreshing] = useState(false)
-  useEffect(() => {
-    if (!supabase) { setSession(null); return undefined }
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, next) => setSession(next))
-    supabase.auth.getSession().then(({ data: result }) => setSession(result.session)).catch(() => setSession(null))
-    return () => listener.subscription.unsubscribe()
-  }, [])
-  useEffect(() => {
-    if (!session) return undefined
-    let active = true
-    setLoading(true)
-    listShiftReports().then(items => { if (active) { setReports(items); setError('') } })
-      .catch(cause => { if (active) setError(cause.message) })
-      .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
-  }, [session])
+  const [filters, setFilters] = useState({})
+  const [openFilter, setOpenFilter] = useState(null)
+  const [page, setPage] = useState(0)
 
   async function signIn(event) {
     event.preventDefault()
@@ -165,29 +204,58 @@ export default function ShiftReportsPage({ data, range, onChanged }) {
     else setPassword('')
   }
   async function save(id, patch) {
-    const updated = await updateShiftReport(id, patch)
-    setReports(previous => previous.map(report => report.id === id ? updated : report))
-    onChanged?.()
-  }
-  async function refresh() {
-    setRefreshing(true)
-    try { setReports(await listShiftReports()); onChanged?.(); setError('') }
-    catch (cause) { setError(cause.message) }
-    finally { setRefreshing(false) }
+    await updateShiftReport(id, patch)
+    await onChanged?.()
   }
   const drivers = currentDrivers(data)
   const vehicles = currentVehicles(data)
-  const visibleReports = reports.filter(report => inDateRange(report.shift_date, range))
-  if (session === undefined) return <div className="body-copy">Cargando jornadas...</div>
-  if (!session) return <form className="report-login" onSubmit={signIn}><h2>Ingresar para revisar jornadas</h2><label>Correo<input type="email" value={email} onChange={event => setEmail(event.target.value)} required/></label><label>Contraseña<input type="password" value={password} onChange={event => setPassword(event.target.value)} required/></label>{error && <div className="form-error" role="alert">{error}</div>}<button className="button primary" type="submit">Ingresar</button></form>
+  const visibleReports = reports.filter(report => inDateRange(report.shift_date, range)).map(report => ({ ...report, source_kind: 'conductor', record_date: report.shift_date }))
+  const visibleArchive = archiveShifts.filter(row => inDateRange(row.record_date, range)).map(row => ({ ...row, source_kind: 'hoja' }))
+  const entries = [...visibleReports, ...visibleArchive].sort((a, b) => b.record_date.localeCompare(a.record_date) || String(b.id).localeCompare(String(a.id)))
+  const tableRows = entries.map(row => {
+    const historical = row.source_kind === 'hoja'
+    const sources = historical
+      ? row.archive_photo_path ? [{ label: 'Planilla histórica', path: row.archive_photo_path, rotationDegrees: photoRotation(row) }] : []
+      : [{ label: 'Planilla de jornada', path: row.sheet_photo_path }, { label: 'Comprobante de viajes', path: row.meter_photo_path }].filter(source => source.path)
+    const declared = historical ? row.sales_uyu : row.reported_sales_uyu
+    const sheetAmount = historical ? row.sales_uyu : row.sheet_total_uyu
+    const driverName = row.driver_name || drivers.find(driver => driver.id === row.driver_id)?.name
+    const missing = { driver: !driverName, declared: declared == null, amount: sheetAmount == null }
+    const state = photoStatus(row, sources)
+    return { row, sources, state, missing, values: {
+      date: row.record_date,
+      driver: driverName || 'Sin identificar',
+      mobile: row.mobile_number || mobileNumberForId(row.vehicle_id, vehicles) || 'Sin indicar',
+      declared: amount(declared),
+      photo: sources.length ? 'Con foto' : 'Sin foto',
+      amount: amount(sheetAmount),
+      km: kilometersTraveled(row),
+      status: state.label,
+    } }
+  })
+  const optionsByColumn = Object.fromEntries(FILTER_COLUMNS.map(({ key }) => [key, [...new Set(tableRows.map(item => item.values[key]))].sort((a, b) => String(a).localeCompare(String(b), 'es', { numeric: true }))]))
+  const filteredRows = tableRows.filter(item => FILTER_COLUMNS.every(({ key }) => !filters[key] || item.values[key] === filters[key]))
+  useEffect(() => setPage(0), [range.start, range.end, entries.length])
+  const pageSize = 50
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize))
+  const currentPage = Math.min(page, pageCount - 1)
+  const shown = filteredRows.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
+  if (authSession === undefined) return <div className="body-copy">Cargando jornadas...</div>
+  if (!authSession) return <form className="report-login" onSubmit={signIn}><h2>Ingresar para revisar jornadas</h2><label>Correo<input type="email" value={email} onChange={event => setEmail(event.target.value)} required/></label><label>Contraseña<input type="password" value={password} onChange={event => setPassword(event.target.value)} required/></label>{error && <div className="form-error" role="alert">{error}</div>}<button className="button primary" type="submit">Ingresar</button></form>
   return <>
-    {error && <div className="form-error" role="alert">{error}</div>}
-    <button type="button" className="text-link report-refresh" onClick={refresh} disabled={refreshing}>{refreshing ? 'Actualizando...' : 'Actualizar jornadas'}</button>
-    {loading ? <div className="body-copy">Cargando jornadas...</div> : visibleReports.length === 0 ? <div className="report-empty">No hay jornadas en este período.</div> : <div className="table-scroller report-table"><table className="data-table"><thead><tr><th>Fecha</th><th>Conductor</th><th>Móvil</th><th>Venta declarada</th><th>Fotos</th><th>Planilla</th><th>Taxímetro</th><th>Diferencia</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{visibleReports.map(report => <tr key={report.id}>
-      <td>{report.shift_date}</td><td><strong>{report.driver_name || drivers.find(driver => driver.id === report.driver_id)?.name || 'Sin identificar'}</strong></td><td>{report.mobile_number || mobileNumberForId(report.vehicle_id, vehicles) || 'Sin indicar'}</td><td className="amount">{amount(report.reported_sales_uyu)}</td>
-      <td>{[report.sheet_photo_path && 'Planilla', report.meter_photo_path && 'Taxímetro'].filter(Boolean).join(', ')}</td><td className="amount">{amount(report.sheet_total_uyu)}</td><td className="amount">{amount(report.meter_total_uyu)}</td><td className="amount">{difference(report) == null ? 'Sin comparar' : money(difference(report))}</td>
-      <td><em className={`badge badge-${report.status === 'validado' ? 'ok' : 'warning'}`}>{report.status === 'validado' ? 'Validado' : 'A revisar'}</em></td><td><button type="button" className="edit-action" onClick={() => setSelected(report)} aria-label={`Revisar jornada del ${report.shift_date}`} title="Revisar jornada"><EditIcon/></button></td>
-    </tr>)}</tbody></table></div>}
+    {(error || archiveError || reportsError) && <div className="form-error" role="alert">{error || archiveError || reportsError}</div>}
+    {entries.length === 0 ? <div className="report-empty">No hay jornadas en este período.</div> : <div className="table-scroller report-table"><table className="data-table mobile-card-table filter-card-table planillas-table"><thead><tr>{FILTER_COLUMNS.map(({ key, label }) => <th key={key}><ColumnFilter label={label} value={filters[key] || ''} options={optionsByColumn[key]} open={openFilter === key} onToggle={() => setOpenFilter(current => current === key ? null : key)} onClose={() => setOpenFilter(null)} onChange={value => { setFilters(current => ({ ...current, [key]: value })); setPage(0) }}/></th>)}<th>Acciones</th></tr></thead><tbody>{shown.map(({ row, sources, state, missing, values }) => {
+      const historical = row.source_kind === 'hoja'
+      return <tr key={`${row.source_kind}-${row.id}`}>
+        <td data-label="Fecha">{values.date}</td><td data-label="Conductor"><strong className={missing.driver ? 'missing-value' : undefined}>{values.driver}</strong></td><td data-label="Móvil">{values.mobile}</td><td data-label="Venta declarada" className={`amount ${missing.declared ? 'missing-value' : ''}`}>{values.declared}</td>
+        <td data-label="Foto"><em className={`badge badge-${sources.length ? 'ok' : 'danger'}`}>{values.photo}</em></td><td data-label="Importe" className={`amount ${missing.amount ? 'missing-value' : ''}`}>{values.amount}</td><td data-label="Km recorridos" className={values.km === 'Sin registrar' || values.km === 'A revisar' ? 'missing-value' : undefined}>{values.km}</td>
+        <td data-label="Estado"><em className={`badge badge-${state.kind}`}>{state.label}</em></td>
+        <td data-label="Acciones" className="report-actions">{sources.length > 0 && <button type="button" className="edit-action" onClick={() => setPhotoSources(sources)} aria-label={`Ver fotos de la jornada del ${row.record_date}`} title="Ver fotos"><Eye size={21} strokeWidth={1.8}/></button>}<button type="button" className="edit-action" onClick={() => historical ? onInspectArchive?.(row) : setSelected(row)} aria-label={`Editar jornada del ${row.record_date}`} title="Editar jornada"><EditIcon/></button></td>
+      </tr>
+    })}</tbody></table></div>}
+    {entries.length > 0 && filteredRows.length === 0 && <div className="report-empty">No hay jornadas con estos filtros.</div>}
+    {filteredRows.length > pageSize && <div className="report-pages"><button type="button" className="button secondary compact" disabled={currentPage === 0} onClick={() => setPage(value => value - 1)}>Anterior</button><div>Página {currentPage + 1} de {pageCount}</div><button type="button" className="button secondary compact" disabled={currentPage >= pageCount - 1} onClick={() => setPage(value => value + 1)}>Siguiente</button></div>}
     {selected && <ReviewForm key={selected.id} report={selected} data={data} onClose={() => setSelected(null)} onSaved={save}/>}
+    {photoSources && <PhotoViewer sources={photoSources} onClose={() => setPhotoSources(null)}/>}
   </>
 }
