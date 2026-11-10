@@ -118,9 +118,10 @@ function SectionTitle({ title, description, action }) {
 }
 function PeriodPicker({ fromMonth, toMonth, onFromMonth, onToMonth }) {
   const latestMonth = localDate().slice(0, 7)
+  const monthLabel = value => value ? new Date(`${value}-01T12:00:00`).toLocaleDateString('es-UY', { month: 'long', year: 'numeric' }) : 'Elegí un mes'
   return <div className="period-picker" role="group" aria-label="Filtrar por meses">
-    <label>Desde<input type="month" value={fromMonth} max={latestMonth} onChange={event => onFromMonth(event.target.value)}/></label>
-    <label>Hasta<input type="month" value={toMonth} max={latestMonth} onChange={event => onToMonth(event.target.value)}/></label>
+    <label>Desde<div className="date-input-shell"><input type="month" value={fromMonth} max={latestMonth} onChange={event => onFromMonth(event.target.value)}/><strong aria-hidden="true">{monthLabel(fromMonth)}</strong><CalendarDays aria-hidden="true" size={18}/></div></label>
+    <label>Hasta<div className="date-input-shell"><input type="month" value={toMonth} max={latestMonth} onChange={event => onToMonth(event.target.value)}/><strong aria-hidden="true">{monthLabel(toMonth)}</strong><CalendarDays aria-hidden="true" size={18}/></div></label>
   </div>
 }
 function VehicleLabel({ id }) { const { vehicles } = useContext(CatalogContext); const vehicle = vehicles.find(v => v.id === id); return vehicle ? mobileLabel(vehicle) : <MissingValue>Sin identificar</MissingValue> }

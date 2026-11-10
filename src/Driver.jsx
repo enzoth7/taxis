@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Camera, Check, Image as ImageIcon, CarFront, X } from 'lucide-react'
+import { Camera, CalendarDays, Check, Image as ImageIcon, CarFront, X } from 'lucide-react'
 
 function localDateTime(date = new Date()) {
   const pad = value => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+function readableDateTime(value) {
+  return value ? new Date(`${value}:00`).toLocaleString('es-UY', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : 'Elegí fecha y hora'
 }
 
 const emptyAmounts = { sales: '', commission: '', jornalPos: '', fiado: '', totalToPay: '', expenses: '0' }
@@ -109,8 +112,8 @@ export default function Driver({ onAddShiftReport }) {
         <div className="field-grid">
           <label className="mobile-field"><em>Nombre del conductor</em><input type="text" maxLength="120" autoComplete="name" value={driverName} onChange={event => setDriverName(event.target.value)} required/></label>
           <label className="mobile-field"><em>Número del móvil</em><input type="text" inputMode="numeric" pattern="[0-9]{1,6}" maxLength="6" value={mobileNumber} onChange={event => setMobileNumber(event.target.value)} placeholder="Ej.: 13" required/></label>
-          <label className="mobile-field"><em>Inicio del turno</em><input type="datetime-local" value={startedAt} onChange={event => setStartedAt(event.target.value)} required/></label>
-          <label className="mobile-field"><em>Fin del turno</em><input type="datetime-local" value={endedAt} onChange={event => setEndedAt(event.target.value)} required/></label>
+          <label className="mobile-field"><em>Inicio del turno</em><div className="date-input-shell"><input type="datetime-local" value={startedAt} onChange={event => setStartedAt(event.target.value)} required/><strong aria-hidden="true">{readableDateTime(startedAt)}</strong><CalendarDays aria-hidden="true" size={18}/></div></label>
+          <label className="mobile-field"><em>Fin del turno</em><div className="date-input-shell"><input type="datetime-local" value={endedAt} onChange={event => setEndedAt(event.target.value)} required/><strong aria-hidden="true">{readableDateTime(endedAt)}</strong><CalendarDays aria-hidden="true" size={18}/></div></label>
           <label className="mobile-field"><em>Odómetro inicial (km)</em><input type="number" min="0" step="1" inputMode="numeric" value={odometerStartKm} onChange={event => setOdometerStartKm(event.target.value)} required/></label>
           <label className="mobile-field"><em>Odómetro final (km)</em><input type="number" min="0" step="1" inputMode="numeric" value={odometerEndKm} onChange={event => setOdometerEndKm(event.target.value)} required/></label>
         </div>

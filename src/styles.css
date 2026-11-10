@@ -261,6 +261,8 @@ select { appearance:none; -webkit-appearance:none; background-image:none; paddin
 .period-picker { display:flex; align-items:end; gap:10px; }
 .period-picker label { display:flex; flex-direction:column; gap:5px; color:#0B1F33; font-size:12px; font-weight:600; }
 .period-picker input[type="month"] { width:165px; height:46px; padding:0 10px; border-radius:9px; font-size:13px; font-weight:400; }
+.date-input-shell { position:relative; min-width:0; }
+.date-input-shell > strong,.date-input-shell > svg { display:none; }
 .edit-record-modal input[readonly] { background:#fff; opacity:.7; }
 .directory-page[aria-label="Tabla de flota"] .data-table td:nth-child(7) { min-width:220px; max-width:390px; white-space:normal; line-height:1.45; }
 .drivers-directory .table-scroller { overflow-x:hidden; }
@@ -360,6 +362,11 @@ button { -webkit-user-select:none; user-select:none; }
   .period-picker { width:100%; flex-direction:column; align-items:stretch; gap:12px; }
   .period-picker label { flex:none; width:100%; min-width:0; }
   .period-picker input[type="month"] { display:block; width:100%; max-width:100%; min-width:0; min-height:48px; font-size:16px; }
+  .date-input-shell { display:flex; align-items:center; width:100%; height:48px; border:1px solid #0B1F33; border-radius:10px; background:#fff; overflow:hidden; }
+  .date-input-shell:focus-within { outline:2px solid #0B1F33; outline-offset:2px; }
+  .date-input-shell > input,.period-picker .date-input-shell > input[type="month"],.driver-upload-form .date-input-shell > input[type="datetime-local"] { position:absolute; inset:0; z-index:1; width:100%; height:100%; max-width:100%; min-width:0; margin:0; padding:0; opacity:0; cursor:pointer; }
+  .date-input-shell > strong { display:block; width:100%; min-width:0; padding:0 42px 0 13px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#0B1F33; font-size:16px; font-weight:400; line-height:1.25; pointer-events:none; }
+  .date-input-shell > svg { display:block; position:absolute; right:14px; top:50%; transform:translateY(-50%); color:#0B1F33; pointer-events:none; }
   .title-actions .section-create { width:100%; min-height:48px; }
   .dashboard-grid,.dashboard-grid.bottom-grid { gap:20px; }
   .panel-heading { grid-template-columns:minmax(0,1fr); gap:6px; }
